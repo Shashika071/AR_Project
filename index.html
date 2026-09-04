@@ -825,6 +825,34 @@
       const frame = sceneEl.frame;
       if (!frame || !session) return;
 
+      // Attach listeners once even when session set programmatically (no enter-vr)
+      if (!this._attached) {
+        this._attached = true;
+        const self = this;
+        session.addEventListener('end', function () {
+          self.hitTestSource = null;
+          self.requested = false;
+          self.hit = null;
+          self.placed = false;
+          self._attached = false;
+          const anchor = document.getElementById('ml-anchor');
+          const reticle = document.getElementById('ml-reticle');
+          if (anchor) anchor.setAttribute('visible', false);
+          if (reticle) reticle.setAttribute('visible', false);
+          document.body.classList.remove('ar-live-xr');
+          if (self._onTouch) window.removeEventListener('touchend', self._onTouch);
+        });
+        session.addEventListener('select', function () { self.onSelect(); });
+        self._onTouch = function (ev) {
+          if (ev && ev.target && ev.target.closest &&
+              ev.target.closest('button, .city-tab, .hist-cell, #history-strip, #city-tabs, #ar-cta, #ui-overlay, #toast')) return;
+          self.onSelect();
+        };
+        window.addEventListener('touchend', self._onTouch);
+        document.body.classList.add('ar-live-xr');
+        try { showToast('👆 Point at floor/table, then tap to place', 3500); } catch (e) {}
+      }
+
       if (!this.requested) {
         this.requested = true;
         if (session.requestReferenceSpace && session.requestHitTestSource) {
@@ -1708,26 +1736,53 @@
 
   async function enterMarkerlessAR () {
     const scene = document.getElementById('markerless-scene');
-    if (!scene) return;
-    if (!markerlessUsesXR) return; // fallback mode does not need enter
+    if (!scene) { showToast('⚠️ AR scene missing', 3500); return; }
+    if (!markerlessUsesXR) return;
+
+    // Hide the CTA + video and prime audio in this user gesture
+    const cta = document.getElementById('ar-cta');
+    if (cta) cta.classList.remove('visible');
+    if (mlCamera) mlCamera.style.display = 'none';
+    try { WeatherAudio.prime(); } catch (e) {}
+
+    // Wait until A-Frame's renderer is ready
+    if (!scene.hasLoaded) {
+      await new Promise(function (r) { scene.addEventListener('loaded', r, { once: true }); });
+    }
+
+    // Force alpha compositing so camera pass-through shows
     try {
-      // Hide the CTA now that we're launching
-      const cta = document.getElementById('ar-cta');
-      if (cta) cta.classList.remove('visible');
-      // Prime audio (user gesture) so weather sounds work inside XR
-      try { WeatherAudio.prime(); } catch (e) {}
-      // A-Frame provides enterAR() when webxr feature is set
-      if (typeof scene.enterAR === 'function') await scene.enterAR();
-      else if (scene.renderer && scene.renderer.xr) {
-        const session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay'],
-          domOverlay: { root: document.body }
-        });
+      const renderer = scene.renderer;
+      if (renderer) {
+        renderer.setClearColor(0x000000, 0);
+        renderer.setClearAlpha(0);
+      }
+    } catch (e) {}
+
+    try {
+      let session;
+      // Prefer the raw WebXR path — it works consistently across A-Frame versions
+      session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay'],
+        domOverlay: { root: document.body }
+      });
+      if (scene.renderer && scene.renderer.xr) {
         await scene.renderer.xr.setSession(session);
       }
+      showToast('📷 AR session active — point at floor/table', 2500);
+
+      // If session ends unexpectedly, restore UI + video
+      session.addEventListener('end', function () {
+        if (mlCamera) mlCamera.style.display = '';
+        document.body.classList.remove('ar-live-xr');
+      });
     } catch (err) {
-      showToast('⚠️ Could not start AR: ' + (err && err.message ? err.message : ''), 4000);
+      // Restore UI so user can retry
+      if (mlCamera) mlCamera.style.display = '';
+      if (cta) cta.classList.add('visible');
+      const msg = (err && err.message) ? err.message : String(err);
+      showToast('⚠️ AR failed: ' + msg, 5000);
     }
   }
 
