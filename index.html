@@ -828,14 +828,31 @@
       // A-Frame v1.4 fires enter-vr for both VR and AR; state helper may differ.
     },
     onSelect: function () {
-      if (!this.hit) return;
       const anchor = document.getElementById('ml-anchor');
       if (!anchor) return;
-      const p = this.hit;
-      anchor.object3D.position.set(p.x, p.y, p.z);
+      const sceneEl = this.el.sceneEl || this.el;
+      let x = 0, y = 0, z = -1.4;
+      if (this.hit) {
+        x = this.hit.x; y = this.hit.y; z = this.hit.z;
+      } else {
+        // No surface hit — drop the city ~1.4m in front of the camera
+        try {
+          const cam = sceneEl.camera;
+          if (cam) {
+            const dir = new THREE.Vector3();
+            cam.getWorldDirection(dir);
+            const pos = cam.getWorldPosition(new THREE.Vector3());
+            dir.multiplyScalar(1.4);
+            x = pos.x + dir.x;
+            y = pos.y + dir.y - 0.3;
+            z = pos.z + dir.z;
+          }
+        } catch (e) {}
+      }
+      anchor.object3D.position.set(x, y, z);
       anchor.setAttribute('visible', true);
       this.placed = true;
-      try { showToast('✨ Placed! Walk around to view · tap again to move', 2500); } catch (e) {}
+      try { showToast('✨ Placed! Walk around · tap again to move', 2500); } catch (e) {}
     },
     tick: function () {
       const sceneEl = this.el.sceneEl || this.el;
@@ -1649,7 +1666,7 @@
       // AR area sizes are much smaller (city on a table diorama)
       return `
         <a-scene id="markerless-scene"
-          webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay; overlayElement: #xr-overlay;"
+          webxr="optionalFeatures: local-floor,hit-test,dom-overlay; overlayElement: #xr-overlay;"
           ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
           renderer="colorManagement: true; alpha: true; antialias: true"
@@ -1739,10 +1756,12 @@
   }
 
   let markerlessUsesXR = false;
+  let markerlessForceCamera = false;
 
   async function ensureMarkerlessScene () {
     if (document.getElementById('markerless-scene')) return;
-    markerlessUsesXR = await isWebXRSupported();
+    if (markerlessForceCamera) markerlessUsesXR = false;
+    else markerlessUsesXR = await isWebXRSupported();
     mlSceneHost.innerHTML = markerlessSceneHTML(markerlessUsesXR);
     return new Promise((resolve) => {
       const scene = document.getElementById('markerless-scene');
@@ -1755,23 +1774,53 @@
     });
   }
 
+  async function requestARSession (overlay) {
+    const attempts = [];
+    if (overlay) {
+      attempts.push({
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay'],
+        domOverlay: { root: overlay }
+      });
+      attempts.push({
+        optionalFeatures: ['hit-test', 'local-floor', 'dom-overlay'],
+        domOverlay: { root: overlay }
+      });
+      attempts.push({
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: overlay }
+      });
+    }
+    attempts.push({ optionalFeatures: ['hit-test', 'local-floor'] });
+    attempts.push({ optionalFeatures: ['hit-test'] });
+    attempts.push({});
+
+    let lastErr = null;
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        const session = await navigator.xr.requestSession('immersive-ar', attempts[i]);
+        return session;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error('WebXR AR not available');
+  }
+
   async function enterMarkerlessAR () {
     const scene = document.getElementById('markerless-scene');
     if (!scene) { showToast('⚠️ AR scene missing', 3500); return; }
     if (!markerlessUsesXR) return;
 
-    // Hide the CTA + video and prime audio in this user gesture
     const cta = document.getElementById('ar-cta');
     if (cta) cta.classList.remove('visible');
     if (mlCamera) mlCamera.style.display = 'none';
     try { WeatherAudio.prime(); } catch (e) {}
 
-    // Wait until A-Frame's renderer is ready
     if (!scene.hasLoaded) {
       await new Promise(function (r) { scene.addEventListener('loaded', r, { once: true }); });
     }
 
-    // Force alpha compositing so camera pass-through shows
     try {
       const renderer = scene.renderer;
       if (renderer) {
@@ -1784,15 +1833,11 @@
       document.documentElement.classList.add('ar-session');
       document.body.classList.add('ar-live-xr');
       const overlay = document.getElementById('xr-overlay');
-      let session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['local-floor', 'dom-overlay'],
-        domOverlay: { root: overlay || document.body }
-      });
+      const session = await requestARSession(overlay);
       if (scene.renderer && scene.renderer.xr) {
         await scene.renderer.xr.setSession(session);
       }
-      showToast('📷 Point at a floor or table, then tap to place', 2500);
+      showToast('📷 Camera on — tap the screen to place the city', 2800);
 
       session.addEventListener('end', function () {
         document.documentElement.classList.remove('ar-session');
@@ -1803,9 +1848,22 @@
       document.documentElement.classList.remove('ar-session');
       document.body.classList.remove('ar-live-xr');
       if (mlCamera) mlCamera.style.display = '';
-      if (cta) cta.classList.add('visible');
-      const msg = (err && err.message) ? err.message : String(err);
-      showToast('⚠️ AR failed: ' + msg, 5000);
+      // Phone supports AR camera but not this WebXR feature set — use normal camera instead
+      markerlessUsesXR = false;
+      markerlessForceCamera = true;
+      destroyMarkerlessScene();
+      try {
+        await startMarkerlessCamera();
+        await ensureMarkerlessScene();
+        selectCity(mlCityIdx);
+        showToast('📱 Surface AR not supported — using camera mode', 3200);
+        if (cta) cta.classList.remove('visible');
+        modeHint.textContent = '📱 Tap a city · 👆 drag to rotate · 🤏 pinch to zoom';
+      } catch (e2) {
+        if (cta) cta.classList.add('visible');
+        const msg = (err && err.message) ? err.message : String(err);
+        showToast('⚠️ AR failed: ' + msg, 5000);
+      }
     }
   }
 
