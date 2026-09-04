@@ -1605,11 +1605,15 @@
     // Enter AR on user tap (WebXR requires user gesture)
     const startAR = async () => {
       try {
+        // Release the preview stream so WebXR can grab the camera
+        stopMarkerlessCamera();
         if (scene.enterAR) await scene.enterAR();
         else if (scene.enterVR) await scene.enterVR();
         enterBtn.classList.remove('visible');
         if (statusEl) { statusEl.textContent = '🔍 Move phone slowly over a flat surface'; statusEl.classList.add('visible'); }
       } catch (err) {
+        // restart camera preview if we failed to enter AR
+        try { await startMarkerlessCamera(); } catch (e2) {}
         showToast('⚠️ Could not enter AR: ' + (err.message || err), 3500);
       }
     };
@@ -1640,11 +1644,12 @@
       if (data) updateMarkerlessPanel(mlCityIdx, data);
     });
     scene.addEventListener('exit-vr', () => {
-      // exiting XR session
+      // exiting XR session — resume plain camera preview
       if (statusEl) statusEl.classList.remove('visible');
       if (repoBtn)  repoBtn.classList.remove('visible');
       enterBtn.classList.add('visible');
       mlXRPlaced = false;
+      startMarkerlessCamera().catch(function(){});
     });
   }
 
@@ -1723,28 +1728,33 @@
       markerlessWrap.style.display = 'block';
 
       const xrOK = await isWebXRARSupported();
+      // Show camera preview immediately in both paths so user isn't looking at black
+      try { await startMarkerlessCamera(); }
+      catch (e) {
+        toast.style.background = 'rgba(220,50,50,.9)';
+        showToast('⚠️ Camera permission needed'); return;
+      }
+
       if (xrOK) {
         modeHint.textContent = '📍 Tap START AR · scan surface · tap to place';
         try {
           await ensureMarkerlessXRScene();
           wireMarkerlessXR();
-          // pre-load current city weather (won't apply FX until placed)
           selectCity(mlCityIdx);
-          showToast('WebXR AR ready — tap START AR', 2500);
+          showToast('WebXR ready — tap START AR to scan surface', 3000);
         } catch (err) {
           toast.style.background = 'rgba(220,50,50,.9)';
-          showToast('⚠️ WebXR init failed');
+          showToast('⚠️ WebXR init failed: ' + (err.message || err));
         }
       } else {
         modeHint.textContent = '📱 Tap a city · 👆 drag · 🤏 pinch  (no surface scan on this device)';
         try {
-          await startMarkerlessCamera();
           await ensureMarkerlessFallbackScene();
           selectCity(mlCityIdx);
           showToast('Markerless AR (fallback) — device has no WebXR AR', 3000);
         } catch (err) {
           toast.style.background = 'rgba(220,50,50,.9)';
-          showToast('⚠️ Camera permission needed for Markerless AR');
+          showToast('⚠️ Failed to start scene');
         }
       }
     }
