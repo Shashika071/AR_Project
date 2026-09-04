@@ -279,6 +279,62 @@
       transition: opacity .4s ease;
     }
     #rain-tint.visible { opacity: 1; }
+
+    /* Mute button */
+    #mute-btn {
+      background: rgba(10,14,30,.7);
+      border: 1px solid rgba(255,255,255,.25);
+      color: #fff;
+      padding: 4px 10px;
+      border-radius: 14px;
+      font-size: 13px;
+      cursor: pointer;
+      margin-left: 6px;
+    }
+    #mute-btn.muted { opacity: .55; }
+
+    /* Last 12 hours history strip */
+    #history-strip {
+      position: fixed;
+      bottom: max(48px, calc(env(safe-area-inset-bottom, 12px) + 40px));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 998;
+      display: none;
+      flex-wrap: nowrap;
+      gap: 6px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 8px 10px;
+      background: rgba(10,14,30,.7);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 18px;
+      max-width: 94vw;
+      scrollbar-width: none;
+      box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    }
+    #history-strip::-webkit-scrollbar { display: none; }
+    #history-strip.visible { display: flex; }
+    .hist-cell {
+      min-width: 52px;
+      text-align: center;
+      color: #fff;
+      font-size: 11px;
+      padding: 6px 6px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.08);
+      flex: 0 0 auto;
+      line-height: 1.15;
+    }
+    .hist-cell .h { opacity: .7; font-size: 10px; }
+    .hist-cell .e { font-size: 15px; margin: 2px 0; }
+    .hist-cell .t { font-weight: 700; font-size: 12px; }
+    .hist-cell.now {
+      background: linear-gradient(135deg, rgba(0,198,255,.35), rgba(0,114,255,.35));
+      border-color: rgba(0,198,255,.6);
+    }
   </style>
 </head>
 <body>
@@ -366,6 +422,7 @@
 <div id="ui-overlay">
   <span id="app-title">🌐 City AR</span>
   <span id="live-weather">—</span>
+  <button id="mute-btn" onclick="toggleMute()" title="Sound">🔊</button>
   <button id="home-btn" onclick="goHome()">Home</button>
 </div>
 
@@ -377,6 +434,7 @@
 </div>
 
 <p id="mode-hint"></p>
+<div id="history-strip"></div>
 <div id="toast"></div>
 <div id="screen-flash"></div>
 <div id="fog-overlay"></div>
@@ -773,11 +831,12 @@
 
   const API_KEY = '0569b9f28c950849356803aeede49108';
   const CITIES = [
-    { name: 'Colombo', emoji: '🌴', markerModel: '#model-0', mlModel: '#ml-model-0' },
-    { name: 'London', emoji: '🎡', markerModel: '#model-1', mlModel: '#ml-model-1' },
-    { name: 'New York', emoji: '🗽', markerModel: '#model-2', mlModel: '#ml-model-2' },
-    { name: 'San Francisco', emoji: '🌉', markerModel: '#model-3', mlModel: '#ml-model-3' },
+    { name: 'Colombo',       emoji: '🌴', lat: 6.9271,  lon: 79.8612,   markerModel: '#model-0', mlModel: '#ml-model-0' },
+    { name: 'London',        emoji: '🎡', lat: 51.5074, lon: -0.1278,   markerModel: '#model-1', mlModel: '#ml-model-1' },
+    { name: 'New York',      emoji: '🗽', lat: 40.7128, lon: -74.0060,  markerModel: '#model-2', mlModel: '#ml-model-2' },
+    { name: 'San Francisco', emoji: '🌉', lat: 37.7749, lon: -122.4194, markerModel: '#model-3', mlModel: '#ml-model-3' },
   ];
+  const historyCache = {};
 
   const weatherCache = {};
   let currentMode = null;
@@ -802,6 +861,287 @@
     return { Clear:'☀️', Clouds:'☁️', Rain:'🌧️', Drizzle:'🌦️',
              Thunderstorm:'⛈️', Snow:'❄️', Mist:'🌫️', Fog:'🌫️', Haze:'🌫️' }[cond] || '🌡️';
   }
+
+  // Map Open-Meteo weathercode -> OWM-style condition string
+  function weatherCodeToCondition (code) {
+    if (code === 0) return 'Clear';
+    if (code === 1 || code === 2 || code === 3) return 'Clouds';
+    if (code === 45 || code === 48) return 'Fog';
+    if (code >= 51 && code <= 57) return 'Drizzle';
+    if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return 'Rain';
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) return 'Snow';
+    if (code >= 95 && code <= 99) return 'Thunderstorm';
+    return 'Clouds';
+  }
+
+  /* ─────────── Procedural weather sound engine (Web Audio) ─────────── */
+  const WeatherAudio = (function () {
+    let ctx = null, master = null;
+    let current = { stop: function(){} };
+    let muted = false;
+    let lastCond = null;
+
+    function ensure () {
+      if (!ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        ctx = new AC();
+        master = ctx.createGain();
+        master.gain.value = muted ? 0 : 0.55;
+        master.connect(ctx.destination);
+      }
+      if (ctx.state === 'suspended') ctx.resume();
+      return true;
+    }
+
+    function makeNoise (type) {
+      const size = 2 * ctx.sampleRate;
+      const buf = ctx.createBuffer(1, size, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      if (type === 'pink') {
+        let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+        for (let i = 0; i < size; i++) {
+          const w = Math.random()*2-1;
+          b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+          b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+          b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+          d[i]=(b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11;
+          b6=w*0.115926;
+        }
+      } else if (type === 'brown') {
+        let last = 0;
+        for (let i = 0; i < size; i++) {
+          const w = Math.random()*2-1;
+          last = (last + 0.02*w) / 1.02;
+          d[i] = last * 3.5;
+        }
+      } else {
+        for (let i = 0; i < size; i++) d[i] = Math.random()*2-1;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      return src;
+    }
+
+    function rainLayer (intensity) {
+      const noise = makeNoise('white');
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 2200; bp.Q.value = 0.6;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 500;
+      const g = ctx.createGain(); g.gain.value = 0;
+      noise.connect(hp); hp.connect(bp); bp.connect(g); g.connect(master);
+      noise.start();
+      g.gain.linearRampToValueAtTime(0.35 * intensity, ctx.currentTime + 0.9);
+      return { stop: function () {
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.linearRampToValueAtTime(0, t + 0.6);
+        setTimeout(function(){ try{ noise.stop(); }catch(e){} }, 700);
+      }};
+    }
+
+    function thunderLoop () {
+      let alive = true;
+      function rumble () {
+        if (!alive) return;
+        const now = ctx.currentTime;
+        const dur = 1.8 + Math.random()*1.4;
+        const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate*dur), ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        let last = 0;
+        for (let i = 0; i < d.length; i++) {
+          const w = Math.random()*2-1;
+          last = (last + 0.02*w)/1.02;
+          d[i] = last*3.5;
+        }
+        const src = ctx.createBufferSource(); src.buffer = buf;
+        const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=180;
+        const g = ctx.createGain(); g.gain.value = 0;
+        src.connect(lp); lp.connect(g); g.connect(master);
+        src.start(now);
+        g.gain.linearRampToValueAtTime(0.85, now + 0.25);
+        g.gain.linearRampToValueAtTime(0, now + dur);
+        setTimeout(function(){ try{src.stop();}catch(e){} }, (dur+0.2)*1000);
+        const next = 3500 + Math.random()*6500;
+        setTimeout(rumble, next);
+      }
+      setTimeout(rumble, 900 + Math.random()*1500);
+      return { stop: function(){ alive = false; } };
+    }
+
+    function windLayer (intensity) {
+      const noise = makeNoise('pink');
+      const lp = ctx.createBiquadFilter();
+      lp.type='lowpass'; lp.frequency.value=500;
+      const g = ctx.createGain(); g.gain.value = 0;
+      noise.connect(lp); lp.connect(g); g.connect(master);
+      noise.start();
+      g.gain.linearRampToValueAtTime(0.22 * intensity, ctx.currentTime + 1.2);
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.22;
+      const lfoGain = ctx.createGain(); lfoGain.gain.value = 260;
+      lfo.connect(lfoGain); lfoGain.connect(lp.frequency);
+      lfo.start();
+      return { stop: function () {
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.linearRampToValueAtTime(0, t + 0.8);
+        setTimeout(function(){ try{noise.stop(); lfo.stop();}catch(e){} }, 900);
+      }};
+    }
+
+    function birdsLayer () {
+      let alive = true;
+      function chirp () {
+        if (!alive) return;
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator(); osc.type = 'sine';
+        const start = 1800 + Math.random()*1400;
+        osc.frequency.setValueAtTime(start, now);
+        osc.frequency.linearRampToValueAtTime(start + 400 + Math.random()*800, now + 0.11);
+        const g = ctx.createGain(); g.gain.value = 0;
+        osc.connect(g); g.connect(master);
+        g.gain.linearRampToValueAtTime(0.05, now + 0.02);
+        g.gain.linearRampToValueAtTime(0, now + 0.15);
+        osc.start(now); osc.stop(now + 0.2);
+        setTimeout(chirp, 700 + Math.random()*2500);
+      }
+      setTimeout(chirp, 300);
+      return { stop: function(){ alive = false; } };
+    }
+
+    function stopCurrent () {
+      try { current.stop(); } catch(e){}
+      current = { stop: function(){} };
+    }
+
+    function play (cond) {
+      if (!ensure()) return;
+      if (cond === lastCond) return;
+      lastCond = cond;
+      stopCurrent();
+      if (muted) return;
+      if (cond === 'Rain') current = rainLayer(1.0);
+      else if (cond === 'Drizzle') current = rainLayer(0.55);
+      else if (cond === 'Thunderstorm') {
+        const rain = rainLayer(1.15);
+        const th = thunderLoop();
+        current = { stop: function(){ rain.stop(); th.stop(); } };
+      }
+      else if (cond === 'Snow') current = windLayer(0.5);
+      else if (cond === 'Clouds' || cond === 'Mist' || cond === 'Fog' || cond === 'Haze') current = windLayer(0.35);
+      else if (cond === 'Clear') current = birdsLayer();
+      else current = { stop: function(){} };
+    }
+
+    function stop () {
+      stopCurrent();
+      lastCond = null;
+    }
+
+    function setMuted (m) {
+      muted = !!m;
+      if (master) master.gain.value = muted ? 0 : 0.55;
+      if (muted) { stopCurrent(); lastCond = null; }
+    }
+
+    return {
+      play: play, stop: stop, setMuted: setMuted,
+      isMuted: function(){ return muted; }
+    };
+  })();
+
+  window.toggleMute = function () {
+    const nowMuted = !WeatherAudio.isMuted();
+    WeatherAudio.setMuted(nowMuted);
+    const btn = document.getElementById('mute-btn');
+    if (btn) {
+      btn.textContent = nowMuted ? '🔇' : '🔊';
+      btn.classList.toggle('muted', nowMuted);
+    }
+    if (!nowMuted) {
+      // resume sound for currently displayed city
+      const idx = currentMode === 'marker' ? markerCityIdx : mlCityIdx;
+      const data = weatherCache[CITIES[idx].name];
+      if (data) WeatherAudio.play(data.weather[0].main);
+    }
+  };
+
+  /* ─────────── Last 12 hours history (Open-Meteo, no API key) ─────────── */
+  async function fetchHistoryForCity (idx) {
+    const city = CITIES[idx];
+    if (historyCache[city.name]) return historyCache[city.name];
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}`
+                + `&hourly=temperature_2m,weathercode&past_hours=12&forecast_hours=1&timezone=auto`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const times = (data.hourly && data.hourly.time) || [];
+      const temps = (data.hourly && data.hourly.temperature_2m) || [];
+      const codes = (data.hourly && data.hourly.weathercode) || [];
+      const items = [];
+      const start = Math.max(0, times.length - 13);
+      for (let i = start; i < times.length; i++) {
+        items.push({
+          time: times[i],
+          temp: temps[i],
+          cond: weatherCodeToCondition(codes[i])
+        });
+      }
+      historyCache[city.name] = items;
+      return items;
+    } catch (err) {
+      // fake fallback
+      const items = [];
+      const now = new Date();
+      for (let h = 12; h >= 0; h--) {
+        const t = new Date(now.getTime() - h * 3600 * 1000);
+        items.push({
+          time: t.toISOString(),
+          temp: 22 + Math.round(Math.sin(h/2)*3),
+          cond: 'Clouds'
+        });
+      }
+      historyCache[city.name] = items;
+      return items;
+    }
+  }
+
+  function formatHour (iso) {
+    try {
+      const d = new Date(iso);
+      let h = d.getHours();
+      const ampm = h >= 12 ? 'pm' : 'am';
+      h = h % 12 || 12;
+      return h + ampm;
+    } catch (e) { return ''; }
+  }
+
+  function renderHistory (items) {
+    const strip = document.getElementById('history-strip');
+    if (!strip) return;
+    strip.innerHTML = '';
+    const total = items.length;
+    items.forEach(function (it, i) {
+      const cell = document.createElement('div');
+      cell.className = 'hist-cell' + (i === total - 1 ? ' now' : '');
+      cell.innerHTML =
+        '<div class="h">' + formatHour(it.time) + '</div>' +
+        '<div class="e">' + conditionEmoji(it.cond) + '</div>' +
+        '<div class="t">' + Math.round(it.temp) + '°</div>';
+      strip.appendChild(cell);
+    });
+    strip.classList.add('visible');
+    // auto-scroll to latest
+    strip.scrollLeft = strip.scrollWidth;
+  }
+
+  async function showHistoryFor (idx) {
+    const items = await fetchHistoryForCity(idx);
+    renderHistory(items);
+  }
+
 
   let toastTimer;
   function showToast (msg, dur = 3000) {
@@ -905,6 +1245,7 @@
     if (currentMode === 'marker' && markerTracked) {
       applyARWeatherFX(target, cond, { dir: 'dir-light-marker', amb: 'amb-light-marker' });
       liveWeather.textContent = `${CITIES[idx].emoji} ${d.name} · ${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C`;
+      WeatherAudio.play(cond);
     } else if (currentMode === 'marker') {
       // Update text only; keep FX ready but don't flash screen overlays
       clearFX(target);
@@ -920,6 +1261,7 @@
       `${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C · ${d.weather[0].description}`);
     applyARWeatherFX(stage, cond, { dir: 'dir-light-ml', amb: 'amb-light-ml' });
     liveWeather.textContent = `${CITIES[idx].emoji} ${d.name} · ${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C`;
+    WeatherAudio.play(cond);
   }
 
   async function fetchWeatherForCity (idx) {
@@ -1108,11 +1450,14 @@
     startScreen.classList.remove('hidden');
     currentMode = null;
     document.body.dataset.arMode = '';
-    // clear atmospheric overlays
+    // clear atmospheric overlays + sound + history strip
     stopLightning();
     if (rainTint) rainTint.classList.remove('visible');
     if (sunTint) sunTint.classList.remove('visible');
     if (fogOverlay) fogOverlay.classList.remove('visible');
+    const hist = document.getElementById('history-strip');
+    if (hist) hist.classList.remove('visible');
+    WeatherAudio.stop();
   };
 
   window.selectCity = async function (idx) {
@@ -1130,6 +1475,7 @@
       if (markerTracked) {
         showToast(`${CITIES[idx].emoji} ${CITIES[idx].name}`, 1500);
       }
+      showHistoryFor(idx);
       return;
     }
 
@@ -1142,6 +1488,7 @@
     let data = weatherCache[CITIES[idx].name];
     if (!data) data = await fetchWeatherForCity(idx);
     updateMarkerlessPanel(idx, data);
+    showHistoryFor(idx);
   };
 
   // keep old name working if anything still calls it
@@ -1168,6 +1515,8 @@
       const cond = data.weather[0].main;
       liveWeather.textContent = `${city.emoji} ${city.name} · ${conditionEmoji(cond)} ${Math.round(data.main.temp)}°C`;
       showToast(`${city.emoji} ${city.name} · ${conditionEmoji(cond)} ${cond}`, 2200);
+      WeatherAudio.play(cond);
+      showHistoryFor(idx);
     });
     markerTarget.addEventListener('targetLost', () => {
       markerTracked = false;
@@ -1175,6 +1524,7 @@
       if (rainTint) rainTint.classList.remove('visible');
       if (sunTint) sunTint.classList.remove('visible');
       if (fogOverlay) fogOverlay.classList.remove('visible');
+      WeatherAudio.stop();
     });
   }
 
