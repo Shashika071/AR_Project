@@ -340,32 +340,36 @@
     #ar-cta {
       position: fixed;
       inset: 0;
-      z-index: 1500;
+      z-index: 1900;
       display: none;
       align-items: center;
       justify-content: center;
       flex-direction: column;
       gap: 14px;
-      background: radial-gradient(circle at center, rgba(0,0,0,.45), rgba(0,0,0,.75));
       color: #fff;
       text-align: center;
       padding: 24px;
+      background:
+        radial-gradient(circle at top, rgba(0, 170, 255, 0.28), transparent 42%),
+        linear-gradient(180deg, #071018 0%, #0d2438 55%, #12344f 100%);
     }
     #ar-cta.visible { display: flex; }
-    #ar-cta h2 { font-size: clamp(20px, 6vw, 28px); margin-bottom: 4px; }
-    #ar-cta p { opacity: .85; max-width: 320px; font-size: clamp(13px, 3.4vw, 15px); line-height: 1.4; }
+    #ar-cta .ar-cta-emoji { font-size: 64px; line-height: 1; margin-bottom: 10px; }
+    #ar-cta h2 { font-size: clamp(22px, 6vw, 30px); margin-bottom: 4px; }
+    #ar-cta p { opacity: .85; max-width: 340px; font-size: clamp(13px, 3.4vw, 15px); line-height: 1.5; margin-bottom: 6px; }
     #ar-cta button {
       margin-top: 6px;
-      padding: 14px 26px;
-      font-size: 17px;
+      padding: 16px 34px;
+      font-size: 18px;
       font-weight: 700;
-      border-radius: 18px;
+      border-radius: 20px;
       background: linear-gradient(135deg, #00c6ff, #0072ff);
       color: #fff;
       border: none;
       cursor: pointer;
-      box-shadow: 0 8px 30px rgba(0,120,255,.5);
+      box-shadow: 0 10px 34px rgba(0,120,255,.55);
     }
+    #ar-cta small { opacity: .55; margin-top: 12px; font-size: 12px; }
 
     /* Last 12 hours history strip */
     #history-strip {
@@ -527,9 +531,11 @@
 
 <!-- Centered "Enter AR" call-to-action for Markerless (only when WebXR is supported) -->
 <div id="ar-cta">
-  <h2>🚀 Start Surface AR</h2>
-  <p>Point your camera at a floor or table. When the blue ring appears, tap the screen to place the city.</p>
-  <button onclick="enterMarkerlessARClick()">Start AR</button>
+  <div class="ar-cta-emoji">📱✨</div>
+  <h2>Surface AR ready</h2>
+  <p>Point at a floor or table. When the blue ring appears, tap the screen to place the selected city.</p>
+  <button onclick="enterMarkerlessARClick()">🚀 Start AR</button>
+  <small>You can pick a city and change weather from the tabs after placing.</small>
 </div>
 <div id="toast"></div>
 <div id="screen-flash"></div>
@@ -1805,25 +1811,29 @@
       stopMindAR();
       markerlessWrap.style.display = 'block';
       try {
-        await ensureMarkerlessScene();
         const arBtn = document.getElementById('ar-btn');
         const cta = document.getElementById('ar-cta');
+        // Detect WebXR support WITHOUT loading the AR scene yet
+        markerlessUsesXR = await isWebXRSupported();
+
         if (markerlessUsesXR) {
-          // Real surface AR — WebXR provides the camera itself
-          stopMarkerlessCamera();
-          modeHint.textContent = '👆 Tap on a floor/table to place · pick a city from the tabs';
+          // Show a nice CTA over a branded background instead of a black canvas.
+          // Scene creation + camera happens inside enterMarkerlessARClick(), so
+          // the phone doesn't show any black screen while user reads instructions.
           if (arBtn) arBtn.style.display = 'none';
           if (cta) cta.classList.add('visible');
-          showToast('📱 Surface AR ready', 1800);
+          modeHint.textContent = '';
+          // Skip building the AR scene now — build on tap of Start AR
         } else {
           // Fallback: fixed-position markerless with getUserMedia camera
           await startMarkerlessCamera();
+          await ensureMarkerlessScene();
           modeHint.textContent = '📱 Tap a city · 👆 drag to rotate · 🤏 pinch to zoom';
           if (arBtn) arBtn.style.display = 'none';
           if (cta) cta.classList.remove('visible');
           showToast('Markerless AR (fixed) — device has no WebXR', 2500);
+          selectCity(mlCityIdx);
         }
-        selectCity(mlCityIdx);
       } catch (err) {
         toast.style.background = 'rgba(220,50,50,.9)';
         showToast('⚠️ ' + (err && err.message ? err.message : 'Could not start Markerless AR'));
@@ -1831,7 +1841,25 @@
     }
   };
 
-  window.enterMarkerlessARClick = function () { enterMarkerlessAR(); };
+  window.enterMarkerlessARClick = async function () {
+    // Prime audio again inside this fresh user gesture
+    try { WeatherAudio.prime(); } catch (e) {}
+    const cta = document.getElementById('ar-cta');
+    if (cta) cta.classList.remove('visible');
+    // Now build the WebXR scene and enter AR
+    markerlessWrap.style.display = 'block';
+    try {
+      await ensureMarkerlessScene();
+      await selectCity(mlCityIdx);       // load default city + weather + history
+      await enterMarkerlessAR();
+      modeHint.textContent = '👆 Tap the floor/table (blue ring) · pick city from tabs';
+    } catch (err) {
+      toast.style.background = 'rgba(220,50,50,.9)';
+      showToast('⚠️ ' + (err && err.message ? err.message : 'Could not enter AR'), 4000);
+      // Show CTA again so user can retry
+      if (cta) cta.classList.add('visible');
+    }
+  };
 
   window.goHome = function () {
     stopMindAR();
