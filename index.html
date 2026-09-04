@@ -370,6 +370,49 @@
     }
     #ar-center-btn:active { transform: scale(.98); }
 
+    /* 2D center placement marker — always visible while scanning a surface */
+    #place-marker {
+      position: fixed;
+      left: 50%;
+      top: 48%;
+      transform: translate(-50%, -50%);
+      z-index: 1008;
+      width: 72px;
+      height: 72px;
+      pointer-events: none;
+      display: none;
+    }
+    #place-marker.visible { display: block; }
+    #place-marker .ring {
+      position: absolute;
+      inset: 0;
+      border: 3px solid #00c6ff;
+      border-radius: 50%;
+      box-shadow: 0 0 16px rgba(0,198,255,.8);
+      animation: markerPulse 1.2s ease-in-out infinite;
+    }
+    #place-marker .dot {
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 10px; height: 10px;
+      margin: -5px 0 0 -5px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #00c6ff;
+    }
+    #place-marker .cross-h,
+    #place-marker .cross-v {
+      position: absolute;
+      background: rgba(255,255,255,.85);
+      left: 50%; top: 50%;
+    }
+    #place-marker .cross-h { width: 28px; height: 2px; margin: -1px 0 0 -14px; }
+    #place-marker .cross-v { width: 2px; height: 28px; margin: -14px 0 0 -1px; }
+    @keyframes markerPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.12); opacity: .7; }
+    }
+
     /* DOM overlay container used by WebXR while the AR session is active.
        Empty by default — UI panels stay in normal document flow.
        The overlay is invisible/pass-through when not in XR. */
@@ -536,6 +579,12 @@
     <div class="pick" id="ar-pick-summary">🌴 Colombo · Now</div>
     <button id="ar-center-btn" onclick="enterMarkerlessARClick()">🚀 Start AR</button>
   </div>
+</div>
+<div id="place-marker">
+  <div class="ring"></div>
+  <div class="cross-h"></div>
+  <div class="cross-v"></div>
+  <div class="dot"></div>
 </div>
 <div id="history-strip"></div>
 <div id="toast"></div>
@@ -772,12 +821,17 @@
       this.requested = false;
       this.hit = null;
       this.placed = false;
+      this.tmpPos = new THREE.Vector3();
+      this.fwd = new THREE.Vector3();
       const sceneEl = this.el.sceneEl || this.el;
       const self = this;
 
       const attach = function (session) {
-        if (!session) return;
+        if (!session || session.__surfaceHitBound) return;
+        session.__surfaceHitBound = true;
         self.placed = false;
+        self.requested = false;
+        self.hitTestSource = null;
         session.addEventListener('end', function () {
           self.hitTestSource = null;
           self.requested = false;
@@ -787,6 +841,8 @@
           const reticle = document.getElementById('ml-reticle');
           if (anchor) anchor.setAttribute('visible', false);
           if (reticle) reticle.setAttribute('visible', false);
+          const hud = document.getElementById('place-marker');
+          if (hud) hud.classList.remove('visible');
           document.body.classList.remove('ar-live-xr');
         });
         session.addEventListener('select', function () { self.onSelect(); });
@@ -796,7 +852,11 @@
           self.onSelect();
         });
         document.body.classList.add('ar-live-xr');
-        try { showToast('👆 Point at floor/table, then tap to place', 3500); } catch (e) {}
+        const hud = document.getElementById('place-marker');
+        if (hud) hud.classList.add('visible');
+        const reticle = document.getElementById('ml-reticle');
+        if (reticle) reticle.setAttribute('visible', true);
+        try { showToast('Move over floor/table — tap when the blue marker is where you want', 4000); } catch (e) {}
       };
 
       sceneEl.addEventListener('enter-vr', function () {
@@ -805,7 +865,21 @@
       });
       // A-Frame v1.4 fires enter-vr for both VR and AR; state helper may differ.
     },
+    placeReticleFallback: function () {
+      const sceneEl = this.el.sceneEl || this.el;
+      const cam = sceneEl.camera;
+      const reticle = document.getElementById('ml-reticle');
+      if (!cam || !reticle) return;
+      this.fwd.set(0, 0, -1).applyQuaternion(cam.quaternion);
+      this.tmpPos.copy(cam.position).addScaledVector(this.fwd, 1.35);
+      this.tmpPos.y = cam.position.y - 1.15;
+      reticle.object3D.position.copy(this.tmpPos);
+      reticle.object3D.rotation.set(-Math.PI / 2, 0, 0);
+      reticle.setAttribute('visible', true);
+      this.hit = { x: this.tmpPos.x, y: this.tmpPos.y, z: this.tmpPos.z };
+    },
     onSelect: function () {
+      if (!this.hit) this.placeReticleFallback();
       if (!this.hit) return;
       const anchor = document.getElementById('ml-anchor');
       if (!anchor) return;
@@ -813,6 +887,8 @@
       anchor.object3D.position.set(p.x, p.y, p.z);
       anchor.setAttribute('visible', true);
       this.placed = true;
+      const hud = document.getElementById('place-marker');
+      if (hud) hud.classList.remove('visible');
       try {
         if (typeof window.applyPlacedWeather === 'function') window.applyPlacedWeather();
         showToast('✨ Placed with weather + sound', 2500);
@@ -823,8 +899,9 @@
       const xr = sceneEl.renderer && sceneEl.renderer.xr;
       if (!xr || !xr.isPresenting) return;
       const session = xr.getSession && xr.getSession();
-      const frame = sceneEl.frame;
-      if (!frame || !session) return;
+      const frame = sceneEl.frame || (xr.getFrame && xr.getFrame());
+      const reticle = document.getElementById('ml-reticle');
+      if (!session) return;
 
       if (!this.requested) {
         this.requested = true;
@@ -834,30 +911,34 @@
             return session.requestHitTestSource({ space: viewerSpace });
           }).then(function (src) {
             self.hitTestSource = src;
-          }).catch(function (err) {
-            try { showToast('Hit-test unavailable: ' + (err.message || err)); } catch (e) {}
+          }).catch(function () {
+            self.hitTestSource = null;
           });
         }
       }
-      if (!this.hitTestSource) return;
 
-      const refSpace = xr.getReferenceSpace();
-      if (!refSpace) return;
-      const hits = frame.getHitTestResults(this.hitTestSource);
-      const reticle = document.getElementById('ml-reticle');
-      if (hits.length > 0) {
-        const pose = hits[0].getPose(refSpace);
-        if (pose) {
-          this.hit = pose.transform.position;
-          if (reticle) {
-            reticle.object3D.position.set(this.hit.x, this.hit.y, this.hit.z);
-            reticle.setAttribute('visible', true);
+      if (frame && this.hitTestSource) {
+        const refSpace = xr.getReferenceSpace();
+        if (refSpace) {
+          const hits = frame.getHitTestResults(this.hitTestSource);
+          if (hits && hits.length > 0) {
+            const pose = hits[0].getPose(refSpace);
+            if (pose) {
+              this.hit = pose.transform.position;
+              if (reticle) {
+                reticle.object3D.position.set(this.hit.x, this.hit.y, this.hit.z);
+                if (pose.transform.orientation) {
+                  const o = pose.transform.orientation;
+                  reticle.object3D.quaternion.set(o.x, o.y, o.z, o.w);
+                }
+                reticle.setAttribute('visible', true);
+              }
+              return;
+            }
           }
         }
-      } else {
-        this.hit = null;
-        if (reticle) reticle.setAttribute('visible', false);
       }
+      this.placeReticleFallback();
     },
     remove: function () {
       if (this._onTouch) window.removeEventListener('touchend', this._onTouch);
@@ -1671,12 +1752,17 @@
           </a-assets>
           <a-camera position="0 1.6 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
-          <!-- Reticle on the detected surface -->
-          <a-entity id="ml-reticle" visible="false" rotation="-90 0 0">
-            <a-ring color="#00c6ff" radius-inner="0.06" radius-outer="0.08"
+          <!-- Reticle on the detected surface — large so it is obvious -->
+          <a-entity id="ml-reticle" visible="true" rotation="-90 0 0">
+            <a-ring color="#00c6ff" radius-inner="0.12" radius-outer="0.18"
+                    material="opacity: 0.95; transparent: true; shader: flat; side: double"></a-ring>
+            <a-ring color="#ffffff" radius-inner="0.04" radius-outer="0.07"
                     material="opacity: 0.9; transparent: true; shader: flat; side: double"></a-ring>
-            <a-ring color="#ffffff" radius-inner="0.028" radius-outer="0.034"
-                    material="opacity: 0.75; transparent: true; shader: flat; side: double"></a-ring>
+            <a-circle color="#00c6ff" radius="0.025"
+                      material="opacity: 0.85; transparent: true; shader: flat; side: double"></a-circle>
+            <a-cylinder color="#00c6ff" radius="0.012" height="0.16" position="0 0 0.08"
+                        rotation="90 0 0"
+                        material="shader: flat; opacity: 0.9; transparent: true"></a-cylinder>
           </a-entity>
 
           <!-- Placement anchor: sits on the surface once user taps -->
@@ -1885,8 +1971,10 @@
   window.enterMarkerlessARClick = function () {
     const arCenter = document.getElementById('ar-center');
     if (arCenter) arCenter.classList.remove('visible');
-    modeHint.textContent = '👆 Point at floor/table, then tap to place';
-    showToast('Point at a surface, then tap to place', 2800);
+    modeHint.textContent = '👆 Move until you see the blue marker, then tap';
+    showToast('Look for the blue marker, then tap to place', 2800);
+    const hud = document.getElementById('place-marker');
+    if (hud) hud.classList.add('visible');
     const picked = weatherPayloadForPick(mlCityIdx);
     WeatherAudio.play(picked.weather[0].main);
     if (markerlessUsesXR) {
@@ -1895,6 +1983,7 @@
       window.applyPlacedWeather();
       const anchor = document.getElementById('ml-anchor');
       if (anchor) anchor.setAttribute('visible', true);
+      if (hud) hud.classList.remove('visible');
     }
   };
 
@@ -1911,6 +2000,8 @@
     markerlessWrap.style.display = 'none';
     const arCenter = document.getElementById('ar-center');
     if (arCenter) arCenter.classList.remove('visible');
+    const hud = document.getElementById('place-marker');
+    if (hud) hud.classList.remove('visible');
     document.body.classList.remove('ar-live');
     uiOverlay.classList.remove('visible');
     cityTabs.classList.remove('visible');
