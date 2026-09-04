@@ -319,6 +319,57 @@
     }
     #mute-btn.muted { opacity: .55; }
 
+    /* Centered Start AR — pick city + hour first, then tap this */
+    #ar-center {
+      position: fixed;
+      inset: 0;
+      z-index: 1010;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      padding: 24px 16px;
+    }
+    #ar-center.visible { display: flex; }
+    #ar-center-card {
+      pointer-events: auto;
+      width: min(360px, 92vw);
+      text-align: center;
+      background: rgba(8, 16, 32, .82);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 22px;
+      padding: 22px 18px 18px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.45);
+    }
+    #ar-center-card p {
+      color: rgba(255,255,255,.85);
+      font-size: clamp(13px, 3.5vw, 15px);
+      line-height: 1.45;
+      margin-bottom: 16px;
+    }
+    #ar-center-card .pick {
+      color: #7ee0ff;
+      font-weight: 700;
+      font-size: clamp(14px, 4vw, 16px);
+      margin-bottom: 14px;
+    }
+    #ar-center-btn {
+      width: 100%;
+      border: none;
+      border-radius: 16px;
+      padding: 16px 18px;
+      font-size: clamp(16px, 4.5vw, 20px);
+      font-weight: 800;
+      color: #fff;
+      background: linear-gradient(135deg, #00c6ff, #0072ff);
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0,114,255,.45);
+    }
+    #ar-center-btn:active { transform: scale(.98); }
+
     /* DOM overlay container used by WebXR while the AR session is active.
        Empty by default — UI panels stay in normal document flow.
        The overlay is invisible/pass-through when not in XR. */
@@ -395,7 +446,7 @@
 
     <button class="mode-btn" onclick="startMode('markerless')">
       <strong>📱 Markerless AR</strong>
-      <span>No image needed — place city models in front of your camera and switch cities</span>
+      <span>Pick a city + weather hour, then tap Start AR and place it on a floor or table</span>
     </button>
   </div>
 </div>
@@ -467,7 +518,6 @@
 <div id="ui-overlay">
   <span id="app-title">🌐 City AR</span>
   <span id="live-weather">—</span>
-  <button id="ar-btn" onclick="enterMarkerlessARClick()" title="Enter AR" style="display:none">🚀 Start AR</button>
   <button id="mute-btn" onclick="toggleMute()" title="Sound">🔊</button>
   <button id="home-btn" onclick="goHome()">Home</button>
 </div>
@@ -480,6 +530,13 @@
 </div>
 
 <p id="mode-hint"></p>
+<div id="ar-center">
+  <div id="ar-center-card">
+    <p>1. Tap a <b>city</b> at the top<br>2. Tap a <b>weather hour</b> at the bottom<br>3. Then start AR and tap the floor</p>
+    <div class="pick" id="ar-pick-summary">🌴 Colombo · Now</div>
+    <button id="ar-center-btn" onclick="enterMarkerlessARClick()">🚀 Start AR</button>
+  </div>
+</div>
 <div id="history-strip"></div>
 <div id="toast"></div>
 <div id="screen-flash"></div>
@@ -733,8 +790,11 @@
           document.body.classList.remove('ar-live-xr');
         });
         session.addEventListener('select', function () { self.onSelect(); });
-        // Fallback: some devices don't fire XR "select"; also listen to plain taps.
-        window.addEventListener('touchend', self._onTouch = function () { self.onSelect(); });
+        window.addEventListener('touchend', self._onTouch = function (e) {
+          if (e && e.target && e.target.closest &&
+              e.target.closest('button, #ar-center, #city-tabs, #history-strip, #ui-overlay, #home-btn, #mute-btn')) return;
+          self.onSelect();
+        });
         document.body.classList.add('ar-live-xr');
         try { showToast('👆 Point at floor/table, then tap to place', 3500); } catch (e) {}
       };
@@ -753,7 +813,10 @@
       anchor.object3D.position.set(p.x, p.y, p.z);
       anchor.setAttribute('visible', true);
       this.placed = true;
-      try { showToast('✨ Placed! Walk around to view · tap again to move', 2500); } catch (e) {}
+      try {
+        if (typeof window.applyPlacedWeather === 'function') window.applyPlacedWeather();
+        showToast('✨ Placed with weather + sound', 2500);
+      } catch (e) {}
     },
     tick: function () {
       const sceneEl = this.el.sceneEl || this.el;
@@ -865,7 +928,7 @@
 
       this.isUiTouch = (e) => {
         return e && e.target && e.target.closest &&
-          e.target.closest('button, #city-tabs, #start-screen, #ui-overlay, #history-strip, .hist-cell, #mute-btn, #home-btn, #toast');
+          e.target.closest('button, #city-tabs, #start-screen, #ui-overlay, #history-strip, .hist-cell, #mute-btn, #home-btn, #toast, #ar-center, #ar-center-btn');
       };
 
       this.onStart = (x, e) => {
@@ -1010,6 +1073,7 @@
   let markerCityIdx = 0;
   let markerTracked = false;
   let mlStream = null;
+  let mlHourPick = { isNow: true, item: null };
 
   const startScreen = document.getElementById('start-screen');
   const markerScene = document.getElementById('marker-scene');
@@ -1286,21 +1350,72 @@
 
   // Apply a specific hour's weather (from history) to the active AR view.
   // If the tapped hour is the "now" cell, restore the live current-weather.
+  function updatePickSummary () {
+    const el = document.getElementById('ar-pick-summary');
+    if (!el) return;
+    const city = CITIES[mlCityIdx];
+    if (mlHourPick.isNow || !mlHourPick.item) {
+      const live = weatherCache[city.name];
+      const cond = live && live.weather && live.weather[0] ? live.weather[0].main : 'Now';
+      const temp = live && live.main ? Math.round(live.main.temp) + '°C' : '';
+      el.textContent = `${city.emoji} ${city.name} · Live ${conditionEmoji(cond)} ${temp}`.trim();
+    } else {
+      const it = mlHourPick.item;
+      el.textContent = `${city.emoji} ${city.name} · ${formatHour(it.time)} ${conditionEmoji(it.cond)} ${Math.round(it.temp)}°C`;
+    }
+  }
+
+  function weatherPayloadForPick (idx) {
+    const city = CITIES[idx];
+    if (!mlHourPick.isNow && mlHourPick.item) {
+      const it = mlHourPick.item;
+      return {
+        name: city.name,
+        main: { temp: it.temp, feels_like: it.temp, humidity: 50 },
+        wind: { speed: 0 },
+        weather: [{ main: it.cond, description: it.cond.toLowerCase() }]
+      };
+    }
+    return weatherCache[city.name] || {
+      name: city.name,
+      main: { temp: 22, feels_like: 22, humidity: 50 },
+      wind: { speed: 0 },
+      weather: [{ main: 'Clear', description: 'clear sky' }]
+    };
+  }
+
+  window.applyPlacedWeather = function () {
+    if (currentMode !== 'markerless') return;
+    const idx = mlCityIdx;
+    for (let i = 0; i < CITIES.length; i++) {
+      const cityWrap = document.getElementById('ml-city-' + i);
+      if (cityWrap) cityWrap.setAttribute('visible', i === idx);
+    }
+    const d = weatherPayloadForPick(idx);
+    updateMarkerlessPanel(idx, d);
+    WeatherAudio.play(d.weather[0].main);
+  };
+
   async function applyHistoryHour (item, isNow) {
     const cityIdx = currentMode === 'marker' ? markerCityIdx : mlCityIdx;
     const cityName = CITIES[cityIdx].name;
 
+    if (currentMode === 'markerless') {
+      mlHourPick = { isNow: !!isNow, item: isNow ? null : item };
+      updatePickSummary();
+    }
+
     if (isNow) {
-      // restore live current weather
       const live = weatherCache[cityName] || await fetchWeatherForCity(cityIdx);
       if (currentMode === 'marker') updateMarkerPanel(cityIdx, live);
-      else updateMarkerlessPanel(cityIdx, live);
+      else {
+        updateMarkerlessPanel(cityIdx, live);
+        WeatherAudio.play(live.weather[0].main);
+      }
       showToast(`Live · ${CITIES[cityIdx].emoji} ${cityName}`, 1500);
       return;
     }
 
-    // synthesise an OpenWeather-shaped object from the hour so all
-    // existing update / FX / audio code just works.
     const synthetic = {
       name: cityName,
       main: { temp: item.temp, feels_like: item.temp, humidity: 50 },
@@ -1308,7 +1423,10 @@
       weather: [{ main: item.cond, description: item.cond.toLowerCase() }]
     };
     if (currentMode === 'marker') updateMarkerPanel(cityIdx, synthetic);
-    else updateMarkerlessPanel(cityIdx, synthetic);
+    else {
+      updateMarkerlessPanel(cityIdx, synthetic);
+      WeatherAudio.play(item.cond);
+    }
     showToast(`${formatHour(item.time)} · ${conditionEmoji(item.cond)} ${item.cond} · ${Math.round(item.temp)}°C`, 2200);
   }
 
@@ -1340,7 +1458,7 @@
 
   // Stop touch events on UI widgets from reaching the touch-rotate window listener
   function guardUITouches () {
-    const sels = ['#history-strip', '#city-tabs', '#ui-overlay', '#toast', '#mute-btn', '#home-btn'];
+    const sels = ['#history-strip', '#city-tabs', '#ui-overlay', '#toast', '#mute-btn', '#home-btn', '#ar-center'];
     sels.forEach(function (sel) {
       const el = document.querySelector(sel);
       if (!el) return;
@@ -1472,12 +1590,15 @@
   function updateMarkerlessPanel (idx, d) {
     const stage = document.getElementById('ml-stage');
     const cond = d.weather[0].main;
-    document.getElementById('ml-city-text').setAttribute('value', `${CITIES[idx].emoji} ${d.name}`);
-    document.getElementById('ml-wx-text').setAttribute('value',
+    const cityText = document.getElementById('ml-city-text');
+    const wxText = document.getElementById('ml-wx-text');
+    if (cityText) cityText.setAttribute('value', `${CITIES[idx].emoji} ${d.name}`);
+    if (wxText) wxText.setAttribute('value',
       `${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C · ${d.weather[0].description}`);
-    applyARWeatherFX(stage, cond, { dir: 'dir-light-ml', amb: 'amb-light-ml' });
+    if (stage) applyARWeatherFX(stage, cond, { dir: 'dir-light-ml', amb: 'amb-light-ml' });
     liveWeather.textContent = `${CITIES[idx].emoji} ${d.name} · ${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C`;
     WeatherAudio.play(cond);
+    updatePickSummary();
   }
 
   async function fetchWeatherForCity (idx) {
@@ -1564,12 +1685,12 @@
               <a-entity id="ml-rotator" touch-rotate="always: true">
                 ${cityWrappers}
               </a-entity>
-              <a-entity class="ar-rain" weather-rain="area: 0.45; height: 0.5; count: 140; wind: 0.18" position="0 0.25 0"></a-entity>
-              <a-entity class="ar-sun" sun-rays visible="false" position="0.18 0.4 -0.06">
-                <a-sphere radius="0.04" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.7"></a-sphere>
-                <a-entity light="type: point; color: #ffd27a; intensity: 1.2; distance: 2"></a-entity>
+              <a-entity class="ar-rain" weather-rain="area: 0.7; height: 0.85; count: 220; wind: 0.2" position="0 0.4 0"></a-entity>
+              <a-entity class="ar-sun" sun-rays visible="false" position="0.22 0.48 -0.08">
+                <a-sphere radius="0.055" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.7"></a-sphere>
+                <a-entity light="type: point; color: #ffd27a; intensity: 1.4; distance: 2.4"></a-entity>
               </a-entity>
-              <a-entity class="ar-cloud" cloud-drift visible="false" position="0 0.38 0" scale="0.11 0.07 0.11">
+              <a-entity class="ar-cloud" cloud-drift visible="false" position="0 0.46 0" scale="0.16 0.1 0.16">
                 <a-sphere position="-0.6 0 0" radius="0.75" color="#c9d3e3" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
                 <a-sphere position="0.15 0.18 -0.1" radius="0.9" color="#e0e7f2" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
                 <a-sphere position="0.75 0 0.05" radius="0.7" color="#c9d3e3" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
@@ -1725,8 +1846,8 @@
       modeHint.textContent = '📸 Point at 1 image · tap a city · 👆 rotate · 🤏 zoom';
       cityTabs.classList.add('visible');
       markerlessWrap.style.display = 'none';
-      const arBtn = document.getElementById('ar-btn');
-      if (arBtn) arBtn.style.display = 'none';
+      const arCenter = document.getElementById('ar-center');
+      if (arCenter) arCenter.classList.remove('visible');
       stopMarkerlessCamera();
       destroyMarkerlessScene();
       startMindAR();
@@ -1737,23 +1858,23 @@
       cityTabs.classList.add('visible');
       stopMindAR();
       markerlessWrap.style.display = 'block';
+      mlHourPick = { isNow: true, item: null };
       try {
         await ensureMarkerlessScene();
-        const arBtn = document.getElementById('ar-btn');
+        const arCenter = document.getElementById('ar-center');
         if (markerlessUsesXR) {
-          // Real surface AR — WebXR provides the camera itself
           stopMarkerlessCamera();
-          modeHint.textContent = '👉 Tap "Start AR" · then tap on floor/table to place';
-          if (arBtn) arBtn.style.display = '';
-          showToast('📱 Surface AR ready — tap 🚀 Start AR', 2800);
+          modeHint.textContent = 'Pick city + hour, then tap Start AR in the center';
+          if (arCenter) arCenter.classList.add('visible');
+          showToast('Pick city + weather hour, then Start AR', 2800);
         } else {
-          // Fallback: fixed-position markerless with getUserMedia camera
           await startMarkerlessCamera();
-          modeHint.textContent = '📱 Tap a city · 👆 drag to rotate · 🤏 pinch to zoom';
-          if (arBtn) arBtn.style.display = 'none';
-          showToast('Markerless AR (fixed) — device has no WebXR', 2500);
+          modeHint.textContent = 'Pick city + hour, then tap Start AR';
+          if (arCenter) arCenter.classList.add('visible');
+          showToast('Pick city + weather hour, then Start AR', 2500);
         }
         selectCity(mlCityIdx);
+        updatePickSummary();
       } catch (err) {
         toast.style.background = 'rgba(220,50,50,.9)';
         showToast('⚠️ ' + (err && err.message ? err.message : 'Could not start Markerless AR'));
@@ -1761,7 +1882,21 @@
     }
   };
 
-  window.enterMarkerlessARClick = function () { enterMarkerlessAR(); };
+  window.enterMarkerlessARClick = function () {
+    const arCenter = document.getElementById('ar-center');
+    if (arCenter) arCenter.classList.remove('visible');
+    modeHint.textContent = '👆 Point at floor/table, then tap to place';
+    showToast('Point at a surface, then tap to place', 2800);
+    const picked = weatherPayloadForPick(mlCityIdx);
+    WeatherAudio.play(picked.weather[0].main);
+    if (markerlessUsesXR) {
+      enterMarkerlessAR();
+    } else {
+      window.applyPlacedWeather();
+      const anchor = document.getElementById('ml-anchor');
+      if (anchor) anchor.setAttribute('visible', true);
+    }
+  };
 
   window.goHome = function () {
     stopMindAR();
@@ -1774,8 +1909,8 @@
     } catch (e) {}
     destroyMarkerlessScene();
     markerlessWrap.style.display = 'none';
-    const arBtn = document.getElementById('ar-btn');
-    if (arBtn) arBtn.style.display = 'none';
+    const arCenter = document.getElementById('ar-center');
+    if (arCenter) arCenter.classList.remove('visible');
     document.body.classList.remove('ar-live');
     uiOverlay.classList.remove('visible');
     cityTabs.classList.remove('visible');
@@ -1814,6 +1949,7 @@
 
     // Markerless
     mlCityIdx = idx;
+    mlHourPick = { isNow: true, item: null };
     for (let i = 0; i < CITIES.length; i++) {
       const cityWrap = document.getElementById('ml-city-' + i);
       if (cityWrap) cityWrap.setAttribute('visible', i === idx);
@@ -1821,6 +1957,8 @@
     let data = weatherCache[CITIES[idx].name];
     if (!data) data = await fetchWeatherForCity(idx);
     updateMarkerlessPanel(idx, data);
+    WeatherAudio.play(data.weather[0].main);
+    updatePickSummary();
     showHistoryFor(idx);
   };
 
