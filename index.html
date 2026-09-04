@@ -716,27 +716,34 @@
       this.hit = null;
       this.placed = false;
       const sceneEl = this.el.sceneEl || this.el;
+      const self = this;
 
-      sceneEl.addEventListener('enter-vr', () => {
-        if (!sceneEl.is('ar-mode')) return;
-        const session = sceneEl.renderer.xr.getSession();
+      const attach = function (session) {
         if (!session) return;
-        this.placed = false;
-        session.addEventListener('end', () => {
-          this.hitTestSource = null;
-          this.requested = false;
-          this.hit = null;
-          this.placed = false;
+        self.placed = false;
+        session.addEventListener('end', function () {
+          self.hitTestSource = null;
+          self.requested = false;
+          self.hit = null;
+          self.placed = false;
           const anchor = document.getElementById('ml-anchor');
           const reticle = document.getElementById('ml-reticle');
           if (anchor) anchor.setAttribute('visible', false);
           if (reticle) reticle.setAttribute('visible', false);
           document.body.classList.remove('ar-live-xr');
         });
-        session.addEventListener('select', () => this.onSelect());
+        session.addEventListener('select', function () { self.onSelect(); });
+        // Fallback: some devices don't fire XR "select"; also listen to plain taps.
+        window.addEventListener('touchend', self._onTouch = function () { self.onSelect(); });
         document.body.classList.add('ar-live-xr');
-        try { showToast('👆 Point at a floor/table, then tap to place', 3500); } catch (e) {}
+        try { showToast('👆 Point at floor/table, then tap to place', 3500); } catch (e) {}
+      };
+
+      sceneEl.addEventListener('enter-vr', function () {
+        const session = sceneEl.renderer && sceneEl.renderer.xr && sceneEl.renderer.xr.getSession && sceneEl.renderer.xr.getSession();
+        attach(session);
       });
+      // A-Frame v1.4 fires enter-vr for both VR and AR; state helper may differ.
     },
     onSelect: function () {
       if (!this.hit) return;
@@ -750,37 +757,47 @@
     },
     tick: function () {
       const sceneEl = this.el.sceneEl || this.el;
-      if (!sceneEl.is || !sceneEl.is('ar-mode')) return;
+      const xr = sceneEl.renderer && sceneEl.renderer.xr;
+      if (!xr || !xr.isPresenting) return;
+      const session = xr.getSession && xr.getSession();
       const frame = sceneEl.frame;
-      const session = sceneEl.renderer.xr.getSession();
       if (!frame || !session) return;
 
       if (!this.requested) {
         this.requested = true;
-        session.requestReferenceSpace('viewer').then((viewerSpace) => {
-          if (session.requestHitTestSource) {
-            session.requestHitTestSource({ space: viewerSpace }).then((src) => {
-              this.hitTestSource = src;
-            }).catch(() => {});
-          }
-        }).catch(() => {});
+        if (session.requestReferenceSpace && session.requestHitTestSource) {
+          const self = this;
+          session.requestReferenceSpace('viewer').then(function (viewerSpace) {
+            return session.requestHitTestSource({ space: viewerSpace });
+          }).then(function (src) {
+            self.hitTestSource = src;
+          }).catch(function (err) {
+            try { showToast('Hit-test unavailable: ' + (err.message || err)); } catch (e) {}
+          });
+        }
       }
       if (!this.hitTestSource) return;
 
-      const refSpace = sceneEl.renderer.xr.getReferenceSpace();
+      const refSpace = xr.getReferenceSpace();
+      if (!refSpace) return;
       const hits = frame.getHitTestResults(this.hitTestSource);
       const reticle = document.getElementById('ml-reticle');
       if (hits.length > 0) {
         const pose = hits[0].getPose(refSpace);
-        this.hit = pose.transform.position;
-        if (reticle) {
-          reticle.object3D.position.set(this.hit.x, this.hit.y, this.hit.z);
-          reticle.setAttribute('visible', true);
+        if (pose) {
+          this.hit = pose.transform.position;
+          if (reticle) {
+            reticle.object3D.position.set(this.hit.x, this.hit.y, this.hit.z);
+            reticle.setAttribute('visible', true);
+          }
         }
       } else {
         this.hit = null;
         if (reticle) reticle.setAttribute('visible', false);
       }
+    },
+    remove: function () {
+      if (this._onTouch) window.removeEventListener('touchend', this._onTouch);
     }
   });
 
@@ -1520,7 +1537,7 @@
       // AR area sizes are much smaller (city on a table diorama)
       return `
         <a-scene id="markerless-scene"
-          webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay; overlayElement: #ml-dom-overlay;"
+          webxr="requiredFeatures: hit-test; optionalFeatures: local-floor;"
           ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
           renderer="colorManagement: true; alpha: true; antialias: true"
@@ -1636,8 +1653,7 @@
       else if (scene.renderer && scene.renderer.xr) {
         const session = await navigator.xr.requestSession('immersive-ar', {
           requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay'],
-          domOverlay: { root: document.getElementById('ml-dom-overlay') }
+          optionalFeatures: ['local-floor']
         });
         await scene.renderer.xr.setSession(session);
       }
