@@ -324,124 +324,6 @@
       border-color: rgba(255,180,60,.85) !important;
       box-shadow: 0 0 0 2px rgba(255,180,60,.35);
     }
-
-    /* Markerless WebXR overlay */
-    #ml-enter-ar {
-      position: fixed;
-      bottom: 30%;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 1010;
-      background: linear-gradient(135deg, #00c6ff, #0072ff);
-      color: #fff; border: none;
-      padding: 14px 24px;
-      border-radius: 999px;
-      font-size: 16px; font-weight: 700;
-      box-shadow: 0 8px 24px rgba(0,114,255,.4);
-      cursor: pointer;
-      display: none;
-    }
-    #ml-enter-ar.visible { display: inline-block; }
-
-    #ml-status {
-      position: fixed;
-      top: 60%;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 1010;
-      color: #fff; background: rgba(10,14,30,.7);
-      padding: 8px 16px;
-      border-radius: 12px;
-      font-size: 13px;
-      backdrop-filter: blur(8px);
-      display: none;
-      max-width: 88vw; text-align: center;
-    }
-    #ml-status.visible { display: block; }
-
-    #ml-reposition {
-      position: fixed;
-      bottom: max(120px, calc(env(safe-area-inset-bottom, 12px) + 110px));
-      right: 12px;
-      z-index: 1010;
-      background: rgba(10,14,30,.8);
-      color: #fff;
-      border: 1px solid rgba(0,198,255,.55);
-      padding: 8px 14px;
-      border-radius: 999px;
-      font-size: 13px;
-      cursor: pointer;
-      display: none;
-    }
-    #ml-reposition.visible { display: inline-block; }
-
-    /* WebXR dom-overlay root: only element visible during immersive-ar */
-    #ml-ar-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 1;
-      pointer-events: none;
-      display: none;
-    }
-    #ml-ar-overlay.active { display: block; }
-    #ml-ar-overlay > * { pointer-events: auto; }
-    #ml-ar-status-bar {
-      position: absolute;
-      top: 24px; left: 50%;
-      transform: translateX(-50%);
-      background: rgba(10,14,30,.8);
-      color: #fff;
-      padding: 8px 16px;
-      border-radius: 12px;
-      font-size: 13px;
-      backdrop-filter: blur(8px);
-      max-width: 90vw; text-align: center;
-    }
-    #ml-ar-exit {
-      position: absolute;
-      top: 24px; right: 16px;
-      background: rgba(220,60,60,.9);
-      color: #fff; border: none;
-      padding: 8px 14px;
-      border-radius: 999px;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    #ml-ar-tabs {
-      position: absolute;
-      bottom: 24px; left: 50%;
-      transform: translateX(-50%);
-      display: flex; gap: 6px; flex-wrap: wrap;
-      justify-content: center;
-      max-width: 96vw;
-    }
-    #ml-ar-tabs button {
-      padding: 6px 10px;
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 14px;
-      background: rgba(10,14,30,.75);
-      color: #fff;
-      font-size: 12px;
-      cursor: pointer;
-    }
-    #ml-ar-tabs button.active {
-      background: linear-gradient(135deg, #00c6ff, #0072ff);
-      border-color: transparent;
-    }
-    #ml-ar-debug {
-      position: absolute;
-      bottom: 84px; left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0,0,0,.7);
-      color: #0f0;
-      font-family: monospace;
-      font-size: 11px;
-      padding: 4px 8px;
-      border-radius: 6px;
-      max-width: 90vw;
-      white-space: pre;
-    }
     .hist-cell {
       min-width: 54px;
       text-align: center;
@@ -543,26 +425,10 @@
   <a-entity id="amb-light-marker" light="type: ambient; intensity: 0.4; color: #b0c4de"></a-entity>
 </a-scene>
 
-<!-- ── MARKERLESS AR (WebXR hit-test scene created on demand) ── -->
+<!-- ── MARKERLESS AR (scene created on demand so Marker camera is not blocked) ── -->
 <div id="markerless-wrap">
   <video id="ml-camera" playsinline webkit-playsinline autoplay muted></video>
   <div id="ml-scene-host"></div>
-</div>
-<button id="ml-enter-ar">📍 Start AR & Scan Surface</button>
-<div id="ml-status">Move phone slowly over a flat surface (table / floor)</div>
-<button id="ml-reposition" onclick="mlReposition()">🔄 Move</button>
-
-<!-- WebXR dom-overlay: this whole subtree is what stays visible during AR -->
-<div id="ml-ar-overlay">
-  <div id="ml-ar-status-bar">🔍 Move phone slowly over a flat surface…</div>
-  <button id="ml-ar-exit" onclick="mlExitAR()">✕ Exit</button>
-  <div id="ml-ar-tabs">
-    <button data-city="0" class="active">🌴 Colombo</button>
-    <button data-city="1">🎡 London</button>
-    <button data-city="2">🗽 New York</button>
-    <button data-city="3">🌉 San Francisco</button>
-  </div>
-  <div id="ml-ar-debug"></div>
 </div>
 
 <div id="ui-overlay">
@@ -1477,21 +1343,13 @@
   }
 
   function updateMarkerlessPanel (idx, d) {
-    // Root for FX is whichever wrapper exists (XR placement or fallback stage)
-    const root = document.getElementById('ml-placement') || document.getElementById('ml-stage');
+    const stage = document.getElementById('ml-stage');
     const cond = d.weather[0].main;
-    const cityText = document.getElementById('ml-city-text');
-    const wxText = document.getElementById('ml-wx-text');
-    if (cityText) cityText.setAttribute('value', `${CITIES[idx].emoji} ${d.name}`);
-    if (wxText) wxText.setAttribute('value',
+    document.getElementById('ml-city-text').setAttribute('value', `${CITIES[idx].emoji} ${d.name}`);
+    document.getElementById('ml-wx-text').setAttribute('value',
       `${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C · ${d.weather[0].description}`);
+    applyARWeatherFX(stage, cond, { dir: 'dir-light-ml', amb: 'amb-light-ml' });
     liveWeather.textContent = `${CITIES[idx].emoji} ${d.name} · ${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C`;
-
-    // In XR mode, only apply visual FX + audio after the model is placed
-    const isXR = !!document.getElementById('ml-placement');
-    if (isXR && !mlXRPlaced) return;
-
-    if (root) applyARWeatherFX(root, cond, { dir: 'dir-light-ml', amb: 'amb-light-ml' });
     WeatherAudio.play(cond);
   }
 
@@ -1520,23 +1378,15 @@
 
   function destroyMarkerlessScene () {
     if (mlSceneHost) mlSceneHost.innerHTML = '';
-    const enterBtn = document.getElementById('ml-enter-ar');
-    const statusEl = document.getElementById('ml-status');
-    const repoBtn  = document.getElementById('ml-reposition');
-    if (enterBtn) enterBtn.classList.remove('visible');
-    if (statusEl) statusEl.classList.remove('visible');
-    if (repoBtn)  repoBtn.classList.remove('visible');
-    mlXRPlaced = false;
   }
 
-  // Non-AR fallback scene used when WebXR AR isn't supported.
-  function ensureMarkerlessFallbackScene () {
+  function ensureMarkerlessScene () {
     if (document.getElementById('markerless-scene')) return Promise.resolve();
     mlSceneHost.innerHTML = `
       <a-scene id="markerless-scene" embedded vr-mode-ui="enabled: false"
         device-orientation-permission-ui="enabled: false"
         renderer="colorManagement: true; alpha: true; antialias: true">
-        <a-assets timeout="60000">
+        <a-assets>
           <a-asset-item id="ml-model-0" src="./models/colombo_city.glb"></a-asset-item>
           <a-asset-item id="ml-model-1" src="./models/london_city.glb"></a-asset-item>
           <a-asset-item id="ml-model-2" src="./models/new_york_city.glb"></a-asset-item>
@@ -1577,208 +1427,17 @@
         <a-entity id="dir-light-ml" light="type: directional; intensity: 1.0; color: #ffffff" position="1 3 1"></a-entity>
         <a-entity id="amb-light-ml" light="type: ambient; intensity: 0.45; color: #b0c4de"></a-entity>
       </a-scene>`;
+
     return new Promise((resolve) => {
       const scene = document.getElementById('markerless-scene');
       const ready = () => {
-        try { if (scene.renderer) scene.renderer.setClearColor(0x000000, 0); } catch (e) {}
+        try {
+          if (scene.renderer) scene.renderer.setClearColor(0x000000, 0);
+        } catch (e) {}
         resolve();
       };
       if (scene.hasLoaded) ready();
       else scene.addEventListener('loaded', ready, { once: true });
-    });
-  }
-
-  // Real WebXR AR scene: scan surface, tap to place model on the reticle.
-  function ensureMarkerlessXRScene () {
-    if (document.getElementById('markerless-scene')) return Promise.resolve();
-    mlSceneHost.innerHTML = `
-      <a-scene id="markerless-scene"
-        webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay; overlayElement: #ml-ar-overlay;"
-        ar-hit-test="target: #ml-placement; enabled: true; footprintDepth: 0.2"
-        vr-mode-ui="enabled: false"
-        renderer="colorManagement: true; alpha: true; antialias: true">
-        <a-assets timeout="60000">
-          <a-asset-item id="ml-model-0" src="./models/colombo_city.glb"></a-asset-item>
-          <a-asset-item id="ml-model-1" src="./models/london_city.glb"></a-asset-item>
-          <a-asset-item id="ml-model-2" src="./models/new_york_city.glb"></a-asset-item>
-          <a-asset-item id="ml-model-3" src="./models/san_francisco_city.glb"></a-asset-item>
-        </a-assets>
-        <a-camera></a-camera>
-        <a-entity id="dir-light-ml" light="type: directional; intensity: 1.0; color: #ffffff" position="1 3 1"></a-entity>
-        <a-entity id="amb-light-ml" light="type: ambient; intensity: 0.55; color: #ffffff"></a-entity>
-
-        <!-- DEBUG: always-visible cube 60cm in front. If you see this, WebXR rendering works. -->
-        <a-box id="ml-debug-cube" position="0 0 -0.6" scale="0.08 0.08 0.08" color="#ff3b3b"></a-box>
-
-        <a-entity id="ml-placement" visible="false" touch-rotate="always: true">
-          <a-entity id="ml-city-0" visible="true">
-            <a-entity class="ar-model" gltf-model="#ml-model-0" fit-to-marker="size: 0.35; fallback: 0.03"></a-entity>
-          </a-entity>
-          <a-entity id="ml-city-1" visible="false">
-            <a-entity class="ar-model" gltf-model="#ml-model-1" fit-to-marker="size: 0.28; fallback: 0.03; offsetY: -0.02"></a-entity>
-          </a-entity>
-          <a-entity id="ml-city-2" visible="false">
-            <a-entity class="ar-model" gltf-model="#ml-model-2" fit-to-marker="size: 0.35; fallback: 0.03"></a-entity>
-          </a-entity>
-          <a-entity id="ml-city-3" visible="false">
-            <a-entity class="ar-model" gltf-model="#ml-model-3" fit-to-marker="size: 0.35; fallback: 0.03"></a-entity>
-          </a-entity>
-
-          <a-entity class="ar-rain" weather-rain="area: 0.6; height: 0.55; count: 160; wind: 0.15" position="0 0.4 0"></a-entity>
-          <a-entity class="ar-sun" sun-rays visible="false" position="0.22 0.55 -0.05" scale="0.6 0.6 0.6">
-            <a-sphere radius="0.08" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.7"></a-sphere>
-            <a-entity light="type: point; color: #ffd27a; intensity: 1.2; distance: 2"></a-entity>
-          </a-entity>
-          <a-entity class="ar-cloud" cloud-drift visible="false" position="0 0.5 0" scale="0.14 0.09 0.14">
-            <a-sphere position="-0.6 0 0" radius="0.75" color="#c9d3e3" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
-            <a-sphere position="0.15 0.18 -0.1" radius="0.9" color="#e0e7f2" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
-            <a-sphere position="0.75 0 0.05" radius="0.7" color="#c9d3e3" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
-          </a-entity>
-          <a-entity class="ar-panel" position="0 0.35 0">
-            <a-text id="ml-city-text" value="Colombo" align="center" color="#ffffff" width="1.2" position="0 0.03 0" scale="0.35 0.35 0.35"></a-text>
-            <a-text id="ml-wx-text" value="—" align="center" color="#00c6ff" width="1.2" position="0 -0.03 0" scale="0.28 0.28 0.28"></a-text>
-          </a-entity>
-        </a-entity>
-      </a-scene>`;
-    return new Promise((resolve) => {
-      const scene = document.getElementById('markerless-scene');
-      const ready = () => {
-        try { if (scene.renderer) scene.renderer.setClearColor(0x000000, 0); } catch (e) {}
-        resolve();
-      };
-      if (scene.hasLoaded) ready();
-      else scene.addEventListener('loaded', ready, { once: true });
-    });
-  }
-
-  async function isWebXRARSupported () {
-    try {
-      if (!navigator.xr || !navigator.xr.isSessionSupported) return false;
-      return await navigator.xr.isSessionSupported('immersive-ar');
-    } catch (e) { return false; }
-  }
-
-  async function ensureMarkerlessScene () {
-    const xrOK = await isWebXRARSupported();
-    if (xrOK) return ensureMarkerlessXRScene();
-    return ensureMarkerlessFallbackScene();
-  }
-
-  let mlXRPlaced = false;
-  window.mlReposition = function () {
-    const scene = document.getElementById('markerless-scene');
-    if (!scene) return;
-    scene.setAttribute('ar-hit-test', 'enabled', true);
-    const placement = document.getElementById('ml-placement');
-    if (placement) placement.setAttribute('visible', false);
-    const statusEl = document.getElementById('ml-status');
-    if (statusEl) { statusEl.textContent = 'Aim at a surface and tap to place'; statusEl.classList.add('visible'); }
-    const repoBtn = document.getElementById('ml-reposition');
-    if (repoBtn) repoBtn.classList.remove('visible');
-    mlXRPlaced = false;
-  };
-
-  window.mlExitAR = function () {
-    try {
-      const scene = document.getElementById('markerless-scene');
-      if (scene) {
-        if (scene.is && scene.is('ar-mode') && scene.exitVR) scene.exitVR();
-        else if (scene.exitVR) scene.exitVR();
-      }
-    } catch (e) {}
-  };
-
-  function arDebug (msg) {
-    const el = document.getElementById('ml-ar-debug');
-    if (el) el.textContent = msg;
-    const st = document.getElementById('ml-ar-status-bar');
-    if (st) st.textContent = msg;
-  }
-
-  function wireMarkerlessXR () {
-    const scene = document.getElementById('markerless-scene');
-    if (!scene) return;
-    const enterBtn = document.getElementById('ml-enter-ar');
-    const statusEl = document.getElementById('ml-status');
-    const repoBtn  = document.getElementById('ml-reposition');
-    const arOverlay = document.getElementById('ml-ar-overlay');
-
-    // Wire in-AR city tabs (mirrors selectCity)
-    if (arOverlay) {
-      arOverlay.querySelectorAll('#ml-ar-tabs button').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          const idx = parseInt(btn.getAttribute('data-city'), 10);
-          arOverlay.querySelectorAll('#ml-ar-tabs button').forEach(function (b) { b.classList.remove('active'); });
-          btn.classList.add('active');
-          mlCityIdx = idx;
-          for (let i = 0; i < CITIES.length; i++) {
-            const cityWrap = document.getElementById('ml-city-' + i);
-            if (cityWrap) cityWrap.setAttribute('visible', i === idx);
-          }
-          const data = weatherCache[CITIES[idx].name];
-          if (data) updateMarkerlessPanel(idx, data);
-          arDebug('🏙️ ' + CITIES[idx].name);
-        });
-      });
-    }
-
-    const forceTransparent = () => {
-      try {
-        const r = scene.renderer;
-        if (r) r.setClearColor(0x000000, 0);
-      } catch (e) {}
-    };
-
-    scene.addEventListener('enter-vr', () => {
-      forceTransparent();
-      if (arOverlay) arOverlay.classList.add('active');
-      arDebug('🎬 AR session started · move phone slowly');
-    });
-
-    scene.addEventListener('exit-vr', () => {
-      if (arOverlay) arOverlay.classList.remove('active');
-      if (statusEl) statusEl.classList.remove('visible');
-      if (repoBtn)  repoBtn.classList.remove('visible');
-      enterBtn.classList.add('visible');
-      mlXRPlaced = false;
-      startMarkerlessCamera().catch(function(){});
-    });
-
-    // Enter AR on user tap (WebXR requires user gesture)
-    const startAR = async () => {
-      try {
-        stopMarkerlessCamera();
-        forceTransparent();
-        if (scene.enterAR) await scene.enterAR();
-        else if (scene.enterVR) await scene.enterVR();
-        forceTransparent();
-        enterBtn.classList.remove('visible');
-      } catch (err) {
-        try { await startMarkerlessCamera(); } catch (e2) {}
-        showToast('⚠️ Could not enter AR: ' + (err.message || err), 4000);
-      }
-    };
-    enterBtn.onclick = startAR;
-    enterBtn.classList.add('visible');
-
-    scene.addEventListener('ar-hit-test-start', () => {
-      arDebug('🔍 Scanning for surface…');
-    });
-    scene.addEventListener('ar-hit-test-achieved', () => {
-      if (!mlXRPlaced) arDebug('✅ Surface found — tap screen to place');
-    });
-    scene.addEventListener('ar-hit-test-select', () => {
-      mlXRPlaced = true;
-      scene.setAttribute('ar-hit-test', 'enabled', false);
-      const placement = document.getElementById('ml-placement');
-      if (placement) placement.setAttribute('visible', true);
-      // hide the debug cube once placed
-      const dbg = document.getElementById('ml-debug-cube');
-      if (dbg) dbg.setAttribute('visible', false);
-      if (statusEl) statusEl.classList.remove('visible');
-      arDebug('🏙️ Placed! Drag to rotate · pinch to zoom');
-      const data = weatherCache[CITIES[mlCityIdx].name];
-      if (data) updateMarkerlessPanel(mlCityIdx, data);
     });
   }
 
@@ -1852,39 +1511,18 @@
       showToast('Marker AR — scan 1 image, then pick a city', 2800);
     } else {
       appTitle.textContent = '📱 Markerless AR';
+      modeHint.textContent = '📱 Tap a city · 👆 drag to rotate · 🤏 pinch to zoom';
       cityTabs.classList.add('visible');
       stopMindAR();
       markerlessWrap.style.display = 'block';
-
-      const xrOK = await isWebXRARSupported();
-      // Show camera preview immediately in both paths so user isn't looking at black
-      try { await startMarkerlessCamera(); }
-      catch (e) {
+      try {
+        await startMarkerlessCamera();
+        await ensureMarkerlessScene();
+        selectCity(mlCityIdx);
+        showToast('Markerless AR selected', 2000);
+      } catch (err) {
         toast.style.background = 'rgba(220,50,50,.9)';
-        showToast('⚠️ Camera permission needed'); return;
-      }
-
-      if (xrOK) {
-        modeHint.textContent = '📍 Tap START AR · scan surface · tap to place';
-        try {
-          await ensureMarkerlessXRScene();
-          wireMarkerlessXR();
-          selectCity(mlCityIdx);
-          showToast('WebXR ready — tap START AR to scan surface', 3000);
-        } catch (err) {
-          toast.style.background = 'rgba(220,50,50,.9)';
-          showToast('⚠️ WebXR init failed: ' + (err.message || err));
-        }
-      } else {
-        modeHint.textContent = '📱 Tap a city · 👆 drag · 🤏 pinch  (no surface scan on this device)';
-        try {
-          await ensureMarkerlessFallbackScene();
-          selectCity(mlCityIdx);
-          showToast('Markerless AR (fallback) — device has no WebXR AR', 3000);
-        } catch (err) {
-          toast.style.background = 'rgba(220,50,50,.9)';
-          showToast('⚠️ Failed to start scene');
-        }
+        showToast('⚠️ Camera permission needed for Markerless AR');
       }
     }
   };
@@ -1892,12 +1530,6 @@
   window.goHome = function () {
     stopMindAR();
     stopMarkerlessCamera();
-    // exit any active WebXR AR session
-    try {
-      const mlScene = document.getElementById('markerless-scene');
-      if (mlScene && mlScene.is && mlScene.is('ar-mode') && mlScene.exitVR) mlScene.exitVR();
-      else if (mlScene && mlScene.xrSession) mlScene.xrSession.end();
-    } catch (e) {}
     destroyMarkerlessScene();
     markerlessWrap.style.display = 'none';
     document.body.classList.remove('ar-live');
