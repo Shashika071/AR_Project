@@ -296,29 +296,31 @@
     /* Last 12 hours history strip */
     #history-strip {
       position: fixed;
-      bottom: max(48px, calc(env(safe-area-inset-bottom, 12px) + 40px));
+      bottom: max(60px, calc(env(safe-area-inset-bottom, 12px) + 52px));
       left: 50%;
       transform: translateX(-50%);
-      z-index: 998;
+      z-index: 1005;
       display: none;
       flex-wrap: nowrap;
       gap: 6px;
       overflow-x: auto;
       overflow-y: hidden;
       padding: 8px 10px;
-      background: rgba(10,14,30,.7);
+      background: rgba(10,14,30,.78);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
       border-radius: 18px;
       max-width: 94vw;
       scrollbar-width: none;
-      box-shadow: 0 4px 20px rgba(0,0,0,.4);
+      box-shadow: 0 4px 20px rgba(0,0,0,.5);
+      pointer-events: auto;
+      touch-action: pan-x;
+      -webkit-overflow-scrolling: touch;
     }
     #history-strip::-webkit-scrollbar { display: none; }
     #history-strip.visible { display: flex; }
-    #history-strip { touch-action: pan-x; -webkit-overflow-scrolling: touch; }
     .hist-cell {
-      min-width: 52px;
+      min-width: 54px;
       text-align: center;
       color: #fff;
       font-size: 11px;
@@ -328,7 +330,11 @@
       border: 1px solid rgba(255,255,255,.08);
       flex: 0 0 auto;
       line-height: 1.15;
+      cursor: pointer;
+      -webkit-tap-highlight-color: rgba(0,198,255,.35);
+      touch-action: manipulation;
     }
+    .hist-cell:active { background: rgba(0,198,255,.25); }
     .hist-cell .h { opacity: .7; font-size: 10px; }
     .hist-cell .e { font-size: 15px; margin: 2px 0; }
     .hist-cell .t { font-weight: 700; font-size: 12px; }
@@ -1136,12 +1142,31 @@
         '<div class="h">' + formatHour(it.time) + '</div>' +
         '<div class="e">' + conditionEmoji(it.cond) + '</div>' +
         '<div class="t">' + Math.round(it.temp) + '°</div>';
+      cell.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        showToast(`${formatHour(it.time)} · ${conditionEmoji(it.cond)} ${it.cond} · ${Math.round(it.temp)}°C`, 2500);
+      });
       strip.appendChild(cell);
     });
     strip.classList.add('visible');
     // auto-scroll to latest
     strip.scrollLeft = strip.scrollWidth;
   }
+
+  // Stop touch events on UI widgets from reaching the touch-rotate window listener
+  function guardUITouches () {
+    const sels = ['#history-strip', '#city-tabs', '#ui-overlay', '#toast', '#mute-btn', '#home-btn'];
+    sels.forEach(function (sel) {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      ['touchstart','touchmove','touchend','click'].forEach(function (evName) {
+        el.addEventListener(evName, function (e) { e.stopPropagation(); }, { passive: true });
+      });
+    });
+  }
+  document.addEventListener('DOMContentLoaded', guardUITouches);
+  // also guard dynamically-added .hist-cell via delegation on strip (already done above)
+
 
   async function showHistoryFor (idx) {
     const items = await fetchHistoryForCity(idx);
