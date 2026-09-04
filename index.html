@@ -78,13 +78,18 @@
     #markerless-scene canvas,
     #markerless-scene .a-canvas {
       background: transparent !important;
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: fill !important;
     }
 
+    /* Stretch camera to the same box as the 3D canvas so the model
+       sits on the printed image (cover crops and pushes tracking down). */
     #marker-scene video {
       position: fixed !important;
       top: 0 !important; left: 0 !important;
       width: 100% !important; height: 100% !important;
-      object-fit: cover !important;
+      object-fit: fill !important;
       z-index: 0 !important;
     }
 
@@ -486,7 +491,7 @@
 
   <!-- One image target — switch cities with the tabs UI -->
   <a-entity id="marker-target" mindar-image-target="targetIndex: 0">
-    <a-entity id="marker-rotator" touch-rotate>
+    <a-entity id="marker-rotator" touch-rotate position="0 0.12 0">
       <a-entity id="marker-city-0" visible="true">
         <a-entity class="ar-model" gltf-model="#model-0" fit-to-marker="size: 0.85; fallback: 0.04"></a-entity>
       </a-entity>
@@ -899,6 +904,7 @@
           this.hit = pose.transform.position;
           if (reticle) {
             reticle.object3D.position.set(this.hit.x, this.hit.y, this.hit.z);
+            reticle.object3D.quaternion.copy(pose.transform.orientation);
             reticle.setAttribute('visible', true);
           }
         }
@@ -1660,10 +1666,10 @@
             <a-asset-item id="ml-model-2" src="./models/new_york_city.glb"></a-asset-item>
             <a-asset-item id="ml-model-3" src="./models/san_francisco_city.glb"></a-asset-item>
           </a-assets>
-          <a-camera position="0 1.6 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
+          <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
           <!-- Reticle on the detected surface -->
-          <a-entity id="ml-reticle" visible="false" rotation="-90 0 0">
+          <a-entity id="ml-reticle" visible="false">
             <a-ring color="#00c6ff" radius-inner="0.06" radius-outer="0.08"
                     material="opacity: 0.9; transparent: true; shader: flat; side: double"></a-ring>
             <a-ring color="#ffffff" radius-inner="0.028" radius-outer="0.034"
@@ -1710,9 +1716,9 @@
           <a-asset-item id="ml-model-2" src="./models/new_york_city.glb"></a-asset-item>
           <a-asset-item id="ml-model-3" src="./models/san_francisco_city.glb"></a-asset-item>
         </a-assets>
-        <a-camera position="0 1.4 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
+        <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
         <a-entity id="ml-anchor" visible="true">
-          <a-entity id="ml-stage" position="0 0.9 -2.2">
+          <a-entity id="ml-stage" position="0 0 -2.4">
             <a-entity id="ml-rotator" touch-rotate="always: true">
               ${cityWrappers}
             </a-entity>
