@@ -709,7 +709,7 @@
   });
 
   /* ── WebXR hit-test: reticle on real surfaces + tap to place ── */
-  AFRAME.registerComponent('ar-hit-test', {
+  AFRAME.registerComponent('surface-hit-test', {
     init: function () {
       this.hitTestSource = null;
       this.requested = false;
@@ -1524,7 +1524,7 @@
           ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
           renderer="colorManagement: true; alpha: true; antialias: true"
-          ar-hit-test>
+          surface-hit-test>
           <a-assets>
             <a-asset-item id="ml-model-0" src="./models/colombo_city.glb"></a-asset-item>
             <a-asset-item id="ml-model-1" src="./models/london_city.glb"></a-asset-item>
