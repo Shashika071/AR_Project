@@ -8,6 +8,27 @@
   <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
+  <!-- Early global error surfacing so we can see JS errors on phone as a toast -->
+  <script>
+    (function () {
+      function showErr (msg) {
+        var el = document.createElement('div');
+        el.textContent = '⚠️ ' + msg;
+        el.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;' +
+          'background:rgba(220,50,50,.95);color:#fff;font:13px system-ui;padding:10px 12px;' +
+          'border-radius:10px;max-height:40vh;overflow:auto;white-space:pre-wrap;';
+        el.addEventListener('click', function () { el.remove(); });
+        document.body ? document.body.appendChild(el) : document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(el); });
+      }
+      window.addEventListener('error', function (e) {
+        showErr((e.message || 'Error') + '\n' + (e.filename || '') + ':' + (e.lineno || '?'));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        showErr('Promise: ' + ((e.reason && (e.reason.message || e.reason)) || 'unknown'));
+      });
+    })();
+  </script>
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
