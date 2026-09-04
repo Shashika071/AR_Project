@@ -504,10 +504,18 @@
           const scale = this.data.size / maxDim;
           this.el.object3D.scale.set(scale, scale, scale);
           const center = box.getCenter(new THREE.Vector3());
+          // Save "unit" offsets so pinch-zoom can recompute the position
+          // and keep the model anchored on the marker instead of drifting.
+          this.el._fitBase = {
+            posX: -center.x,
+            posY: -box.min.y,
+            posZ: -center.z,
+            offsetY: this.data.offsetY || 0
+          };
           this.el.object3D.position.set(
-            -center.x * scale,
-            -box.min.y * scale + this.data.offsetY,
-            -center.z * scale
+            this.el._fitBase.posX * scale,
+            this.el._fitBase.posY * scale + this.el._fitBase.offsetY,
+            this.el._fitBase.posZ * scale
           );
         } else {
           this.el.object3D.scale.set(this.data.fallback, this.data.fallback, this.data.fallback);
@@ -750,12 +758,26 @@
         return Math.hypot(dx, dy);
       };
 
+      // When scale changes, also reposition the model so it stays anchored
+      // to the marker (bottom on the marker plane) instead of drifting.
+      this.applyScaleAndAnchor = (s) => {
+        this.el.object3D.scale.set(s, s, s);
+        const fb = this.el._fitBase;
+        if (fb) {
+          this.el.object3D.position.set(
+            fb.posX * s,
+            fb.posY * s + fb.offsetY,
+            fb.posZ * s
+          );
+        }
+      };
+
       this.applyZoom = (userZoom) => {
         const base = this.baseScale || 1;
         const min = base * this.data.minZoom;
         const max = base * this.data.maxZoom;
         const s = Math.min(max, Math.max(min, base * userZoom));
-        this.el.object3D.scale.set(s, s, s);
+        this.applyScaleAndAnchor(s);
       };
 
       this.touchStart = (e) => {
@@ -780,7 +802,7 @@
             const min = base * this.data.minZoom;
             const max = base * this.data.maxZoom;
             const s = Math.min(max, Math.max(min, proposed));
-            this.el.object3D.scale.set(s, s, s);
+            this.applyScaleAndAnchor(s);
           }
           if (e.cancelable) e.preventDefault();
           return;
@@ -804,7 +826,7 @@
         const factor = e.deltaY < 0 ? 1.1 : 0.9;
         const current = this.el.object3D.scale.x || 1;
         const s = Math.min(max, Math.max(min, current * factor));
-        this.el.object3D.scale.set(s, s, s);
+        this.applyScaleAndAnchor(s);
         e.preventDefault();
       };
 
