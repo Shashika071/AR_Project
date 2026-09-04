@@ -878,7 +878,17 @@
       reticle.setAttribute('visible', true);
       this.hit = { x: this.tmpPos.x, y: this.tmpPos.y, z: this.tmpPos.z };
     },
+    hidePlacementMarker: function () {
+      const reticle = document.getElementById('ml-reticle');
+      if (reticle) {
+        reticle.setAttribute('visible', false);
+        if (reticle.object3D) reticle.object3D.visible = false;
+      }
+      const hud = document.getElementById('place-marker');
+      if (hud) hud.classList.remove('visible');
+    },
     onSelect: function () {
+      if (this.placed) return;
       if (!this.hit) this.placeReticleFallback();
       if (!this.hit) return;
       const anchor = document.getElementById('ml-anchor');
@@ -887,14 +897,14 @@
       anchor.object3D.position.set(p.x, p.y, p.z);
       anchor.setAttribute('visible', true);
       this.placed = true;
-      const hud = document.getElementById('place-marker');
-      if (hud) hud.classList.remove('visible');
+      this.hidePlacementMarker();
       try {
         if (typeof window.applyPlacedWeather === 'function') window.applyPlacedWeather();
         showToast('✨ Placed with weather + sound', 2500);
       } catch (e) {}
     },
     tick: function () {
+      if (this.placed) return;
       const sceneEl = this.el.sceneEl || this.el;
       const xr = sceneEl.renderer && sceneEl.renderer.xr;
       if (!xr || !xr.isPresenting) return;
@@ -1984,6 +1994,8 @@
       const anchor = document.getElementById('ml-anchor');
       if (anchor) anchor.setAttribute('visible', true);
       if (hud) hud.classList.remove('visible');
+      const reticle = document.getElementById('ml-reticle');
+      if (reticle) reticle.setAttribute('visible', false);
     }
   };
 
