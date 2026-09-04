@@ -302,8 +302,8 @@
     }
     #rain-tint.visible { opacity: 1; }
 
-    /* Mute + AR launch button */
-    #mute-btn, #ar-btn {
+    /* Mute button */
+    #mute-btn {
       background: rgba(10,14,30,.7);
       border: 1px solid rgba(255,255,255,.25);
       color: #fff;
@@ -312,13 +312,33 @@
       font-size: 13px;
       cursor: pointer;
       margin-left: 6px;
-    }
-    #ar-btn {
-      background: linear-gradient(135deg, #00c6ff, #0072ff);
-      border-color: transparent;
-      font-weight: 700;
+      pointer-events: auto;
     }
     #mute-btn.muted { opacity: .55; }
+
+    /* Start AR — centered on the page */
+    #ar-btn {
+      display: none;
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1007;
+      pointer-events: auto;
+      min-width: min(78vw, 280px);
+      padding: 18px 28px;
+      border: none;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #00c6ff, #0072ff);
+      color: #fff;
+      font-size: clamp(18px, 5vw, 22px);
+      font-weight: 800;
+      letter-spacing: .02em;
+      cursor: pointer;
+      box-shadow: 0 10px 32px rgba(0,114,255,.45);
+      text-align: center;
+    }
+    #ar-btn.visible { display: block; }
 
     /* DOM overlay container used by WebXR while the AR session is active.
        Empty by default — UI panels stay in normal document flow.
@@ -493,10 +513,10 @@
   <div id="ui-overlay">
     <span id="app-title">🌐 City AR</span>
     <span id="live-weather">—</span>
-    <button id="ar-btn" onclick="enterMarkerlessARClick()" title="Enter AR" style="display:none">🚀 Start AR</button>
     <button id="mute-btn" onclick="toggleMute()" title="Sound">🔊</button>
     <button id="home-btn" onclick="goHome()">Home</button>
   </div>
+  <button id="ar-btn" onclick="enterMarkerlessARClick()" title="Enter AR">🚀 Start AR</button>
   <div id="city-tabs">
     <button class="city-tab active" onclick="selectCity(0)">🌴 Colombo</button>
     <button class="city-tab" onclick="selectCity(1)">🎡 London</button>
@@ -1513,6 +1533,8 @@
       xrScanBanner.classList.add('visible');
     };
     scene.addEventListener('enter-vr', function () {
+      const arBtn = document.getElementById('ar-btn');
+      if (arBtn) arBtn.classList.remove('visible');
       setBanner('Move your phone slowly over a table or floor…');
       showToast('WebXR hit-test started — find a surface', 2800);
     });
@@ -1529,6 +1551,10 @@
     });
     scene.addEventListener('exit-vr', function () {
       if (xrScanBanner) xrScanBanner.classList.remove('visible');
+      if (currentMode === 'markerless') {
+        const arBtn = document.getElementById('ar-btn');
+        if (arBtn) arBtn.classList.add('visible');
+      }
     });
   }
 
@@ -1618,7 +1644,7 @@
       cityTabs.classList.add('visible');
       markerlessWrap.style.display = 'none';
       const arBtn = document.getElementById('ar-btn');
-      if (arBtn) arBtn.style.display = 'none';
+      if (arBtn) arBtn.classList.remove('visible');
       stopMarkerlessCamera();
       destroyMarkerlessScene();
       startMindAR();
@@ -1632,7 +1658,7 @@
       try {
         await ensureMarkerlessScene();
         const arBtn = document.getElementById('ar-btn');
-        if (arBtn) arBtn.style.display = '';
+        if (arBtn) arBtn.classList.add('visible');
         modeHint.textContent = 'Tap Start AR · pan over a table/floor · tap to place';
         selectCity(mlCityIdx);
         showToast('Tap 🚀 Start AR, then scan a real surface', 3000);
@@ -1657,7 +1683,7 @@
     destroyMarkerlessScene();
     markerlessWrap.style.display = 'none';
     const arBtn = document.getElementById('ar-btn');
-    if (arBtn) arBtn.style.display = 'none';
+    if (arBtn) arBtn.classList.remove('visible');
     document.body.classList.remove('ar-live');
     uiOverlay.classList.remove('visible');
     cityTabs.classList.remove('visible');
