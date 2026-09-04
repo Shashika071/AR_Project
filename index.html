@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>WebXR AR — Marker / Markerless</title>
+
+  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #071018;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    body.ar-live { background: transparent; }
+
+    #marker-scene {
+      position: fixed;
+      inset: 0;
+      width: 100%; height: 100%;
+      z-index: 1;
+      visibility: hidden;
+    }
+    #marker-scene.active { visibility: visible; }
+
+    #markerless-wrap {
+      position: fixed;
+      inset: 0;
+      width: 100%; height: 100%;
+      display: none;
+      z-index: 1;
+    }
+
+    #marker-scene canvas,
+    #marker-scene .a-canvas,
+    #markerless-scene canvas,
+    #markerless-scene .a-canvas {
+      background: transparent !important;
+    }
+
+    #marker-scene video {
+      position: fixed !important;
+      top: 0 !important; left: 0 !important;
+      width: 100% !important; height: 100% !important;
+      object-fit: cover !important;
+      z-index: 0 !important;
+    }
+
+    #ml-camera {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      background: #000;
+    }
+
+    #ml-scene-host,
+    #ml-scene-host a-scene {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      background: transparent !important;
+    }
+
+    /* ── Start screen ── */
+    #start-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      background:
+        radial-gradient(circle at top, rgba(0, 170, 255, 0.28), transparent 42%),
+        linear-gradient(180deg, #071018 0%, #0d2438 55%, #12344f 100%);
+      color: #fff;
+    }
+    #start-screen.hidden { display: none; }
+
+    .start-card {
+      width: min(440px, 100%);
+      text-align: center;
+    }
+    .start-card h1 {
+      font-size: clamp(26px, 8vw, 38px);
+      margin-bottom: 8px;
+    }
+    .start-card p {
+      opacity: .75;
+      font-size: clamp(13px, 3.5vw, 16px);
+      margin-bottom: 22px;
+      line-height: 1.45;
+    }
+
+    .mode-btn {
+      width: 100%;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 18px;
+      padding: 16px 14px;
+      margin-bottom: 12px;
+      color: #fff;
+      background: rgba(255,255,255,.08);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      cursor: pointer;
+      text-align: left;
+    }
+    .mode-btn strong {
+      display: block;
+      font-size: clamp(16px, 4.5vw, 20px);
+      margin-bottom: 4px;
+    }
+    .mode-btn span {
+      display: block;
+      opacity: .72;
+      font-size: clamp(12px, 3.2vw, 14px);
+      line-height: 1.35;
+    }
+    .mode-btn.primary {
+      background: linear-gradient(135deg, #00c6ff, #0072ff);
+      border-color: transparent;
+    }
+
+    /* ── Top UI ── */
+    #ui-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 999;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      background: linear-gradient(180deg, rgba(0,0,0,.75) 0%, transparent 100%);
+      pointer-events: none;
+    }
+    #ui-overlay.visible { display: flex; }
+    #ui-overlay > * { pointer-events: all; }
+
+    #app-title {
+      color: #fff;
+      font-size: clamp(12px, 3.2vw, 15px);
+      font-weight: 700;
+      text-shadow: 0 1px 4px rgba(0,0,0,.8);
+      white-space: nowrap;
+    }
+
+    #live-weather {
+      color: #fff;
+      font-size: clamp(10px, 2.8vw, 12px);
+      background: rgba(0,0,0,.45);
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 14px;
+      padding: 6px 8px;
+      max-width: 46vw;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #home-btn {
+      border: none;
+      border-radius: 14px;
+      padding: 7px 10px;
+      background: rgba(255,255,255,.16);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    #city-tabs {
+      position: fixed;
+      top: 58px; left: 0; right: 0;
+      z-index: 998;
+      display: none;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 10px;
+      flex-wrap: wrap;
+    }
+    #city-tabs.visible { display: flex; }
+
+    .city-tab {
+      padding: 6px 12px;
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 16px;
+      background: rgba(10,14,30,.7);
+      color: rgba(255,255,255,.75);
+      font-size: clamp(11px, 3vw, 13px);
+      cursor: pointer;
+    }
+    .city-tab.active {
+      background: linear-gradient(135deg, #00c6ff, #0072ff);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    #toast {
+      position: fixed; top: 70px; left: 50%;
+      transform: translateX(-50%); z-index: 1002;
+      background: rgba(0,150,80,.9); color: #fff;
+      padding: 10px 20px; border-radius: 10px;
+      font-size: 13px; max-width: 88vw; text-align: center;
+      opacity: 0; pointer-events: none; transition: opacity .3s;
+    }
+    #toast.show { opacity: 1; }
+
+    #mode-hint {
+      position: fixed;
+      bottom: max(18px, env(safe-area-inset-bottom, 18px));
+      left: 50%; transform: translateX(-50%);
+      z-index: 998; color: rgba(255,255,255,.75);
+      font-size: clamp(11px, 3vw, 13px);
+      text-align: center; pointer-events: none;
+      text-shadow: 0 1px 4px #000;
+      width: 92vw;
+      display: none;
+    }
+    #mode-hint.visible { display: block; }
+
+    /* Lightning flash for Thunderstorm */
+    #screen-flash {
+      position: fixed;
+      inset: 0;
+      background: #eaf1ff;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 6;
+      mix-blend-mode: screen;
+      transition: opacity 60ms ease-out;
+    }
+    #screen-flash.flash { opacity: .85; }
+
+    /* Fog vignette for Mist/Fog/Haze */
+    #fog-overlay {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at center, rgba(210,220,230,0) 20%, rgba(210,220,230,.55) 90%);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 4;
+      transition: opacity .4s ease;
+    }
+    #fog-overlay.visible { opacity: 1; }
+
+    /* Sunny warm tint */
+    #sun-tint {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 70% 20%, rgba(255,210,120,.18), transparent 55%);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 4;
+      transition: opacity .5s ease;
+    }
+    #sun-tint.visible { opacity: 1; }
+
+    /* Rainy blue tint */
+    #rain-tint {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(20,40,80,.25), rgba(20,40,80,.05));
+      opacity: 0;
+      pointer-events: none;
+      z-index: 4;
+      transition: opacity .4s ease;
+    }
+    #rain-tint.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<!-- ── START: choose mode ── -->
+<div id="start-screen">
+  <div class="start-card">
+    <h1>🌐 City AR</h1>
+    <p>Select what you need when the app starts</p>
+
+    <button class="mode-btn primary" onclick="startMode('marker')">
+      <strong>🎯 Marker AR</strong>
+      <span>Point camera at a printed city image to show the 3D model + weather FX</span>
+    </button>
+
+    <button class="mode-btn" onclick="startMode('markerless')">
+      <strong>📱 Markerless AR</strong>
+      <span>No image needed — place city models in front of your camera and switch cities</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── MARKER AR SCENE ── -->
+<a-scene
+  id="marker-scene"
+  mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiScanning: no; uiError: no;"
+  color-space="sRGB"
+  renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true;"
+  embedded
+  vr-mode-ui="enabled: false"
+  device-orientation-permission-ui="enabled: false"
+>
+  <a-assets timeout="60000">
+    <a-asset-item id="model-0" src="./models/colombo_city.glb"></a-asset-item>
+    <a-asset-item id="model-1" src="./models/london_city.glb"></a-asset-item>
+    <a-asset-item id="model-2" src="./models/new_york_city.glb"></a-asset-item>
+    <a-asset-item id="model-3" src="./models/san_francisco_city.glb"></a-asset-item>
+  </a-assets>
+
+  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+  <a-entity mindar-image-target="targetIndex: 0">
+    <a-entity class="ar-model" gltf-model="#model-0" fit-to-marker="size: 0.85; fallback: 0.04" touch-rotate></a-entity>
+    <a-entity class="ar-rain" weather-rain position="0 0.55 0"></a-entity>
+    <a-entity class="ar-sun" sun-rays visible="false" position="0.35 0.85 -0.05">
+      <a-sphere radius="0.08" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.6"></a-sphere>
+      <a-entity light="type: point; color: #ffd27a; intensity: 1.3; distance: 3"></a-entity>
+    </a-entity>
+    <a-entity class="ar-cloud" cloud-drift visible="false" position="0 0.85 0" scale="0.22 0.15 0.22">
+      <a-sphere position="-0.6 0 0" radius="0.75" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.15 0.15 -0.1" radius="0.9" color="#e0e7f2" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.7 0 0.05" radius="0.7" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="-0.2 -0.15 0.15" radius="0.6" color="#b7c2d4" opacity="0.72" material="transparent: true; shader: flat"></a-sphere>
+    </a-entity>
+    <a-entity class="ar-panel" position="0 0.55 0">
+      <a-text class="ar-city-text" value="Colombo" align="center" color="#ffffff" width="0.9" position="0 0.03 0" scale="0.45 0.45 0.45"></a-text>
+      <a-text class="ar-wx-text" value="—" align="center" color="#00c6ff" width="0.9" position="0 -0.03 0" scale="0.35 0.35 0.35"></a-text>
+    </a-entity>
+  </a-entity>
+
+  <a-entity mindar-image-target="targetIndex: 1">
+    <a-entity class="ar-model" gltf-model="#model-1" fit-to-marker="size: 1.1; fallback: 0.1" touch-rotate></a-entity>
+    <a-entity class="ar-rain" weather-rain position="0 0.55 0"></a-entity>
+    <a-entity class="ar-sun" sun-rays visible="false" position="0.35 0.85 -0.05">
+      <a-sphere radius="0.08" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.6"></a-sphere>
+      <a-entity light="type: point; color: #ffd27a; intensity: 1.3; distance: 3"></a-entity>
+    </a-entity>
+    <a-entity class="ar-cloud" cloud-drift visible="false" position="0 0.85 0" scale="0.22 0.15 0.22">
+      <a-sphere position="-0.6 0 0" radius="0.75" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.15 0.15 -0.1" radius="0.9" color="#e0e7f2" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.7 0 0.05" radius="0.7" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="-0.2 -0.15 0.15" radius="0.6" color="#b7c2d4" opacity="0.72" material="transparent: true; shader: flat"></a-sphere>
+    </a-entity>
+    <a-entity class="ar-panel" position="0 0.55 0">
+      <a-text class="ar-city-text" value="London" align="center" color="#ffffff" width="0.9" position="0 0.03 0" scale="0.45 0.45 0.45"></a-text>
+      <a-text class="ar-wx-text" value="—" align="center" color="#00c6ff" width="0.9" position="0 -0.03 0" scale="0.35 0.35 0.35"></a-text>
+    </a-entity>
+  </a-entity>
+
+  <a-entity mindar-image-target="targetIndex: 2">
+    <a-entity class="ar-model" gltf-model="#model-2" fit-to-marker="size: 1.1; fallback: 0.03" touch-rotate></a-entity>
+    <a-entity class="ar-rain" weather-rain position="0 0.55 0"></a-entity>
+    <a-entity class="ar-sun" sun-rays visible="false" position="0.35 0.85 -0.05">
+      <a-sphere radius="0.08" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.6"></a-sphere>
+      <a-entity light="type: point; color: #ffd27a; intensity: 1.3; distance: 3"></a-entity>
+    </a-entity>
+    <a-entity class="ar-cloud" cloud-drift visible="false" position="0 0.85 0" scale="0.22 0.15 0.22">
+      <a-sphere position="-0.6 0 0" radius="0.75" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.15 0.15 -0.1" radius="0.9" color="#e0e7f2" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.7 0 0.05" radius="0.7" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="-0.2 -0.15 0.15" radius="0.6" color="#b7c2d4" opacity="0.72" material="transparent: true; shader: flat"></a-sphere>
+    </a-entity>
+    <a-entity class="ar-panel" position="0 0.55 0">
+      <a-text class="ar-city-text" value="New York" align="center" color="#ffffff" width="0.9" position="0 0.03 0" scale="0.45 0.45 0.45"></a-text>
+      <a-text class="ar-wx-text" value="—" align="center" color="#00c6ff" width="0.9" position="0 -0.03 0" scale="0.35 0.35 0.35"></a-text>
+    </a-entity>
+  </a-entity>
+
+  <a-entity mindar-image-target="targetIndex: 3">
+    <a-entity class="ar-model" gltf-model="#model-3" fit-to-marker="size: 1.1; fallback: 0.04" touch-rotate></a-entity>
+    <a-entity class="ar-rain" weather-rain position="0 0.55 0"></a-entity>
+    <a-entity class="ar-sun" sun-rays visible="false" position="0.35 0.85 -0.05">
+      <a-sphere radius="0.08" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.6"></a-sphere>
+      <a-entity light="type: point; color: #ffd27a; intensity: 1.3; distance: 3"></a-entity>
+    </a-entity>
+    <a-entity class="ar-cloud" cloud-drift visible="false" position="0 0.85 0" scale="0.22 0.15 0.22">
+      <a-sphere position="-0.6 0 0" radius="0.75" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.15 0.15 -0.1" radius="0.9" color="#e0e7f2" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="0.7 0 0.05" radius="0.7" color="#c9d3e3" opacity="0.82" material="transparent: true; shader: flat"></a-sphere>
+      <a-sphere position="-0.2 -0.15 0.15" radius="0.6" color="#b7c2d4" opacity="0.72" material="transparent: true; shader: flat"></a-sphere>
+    </a-entity>
+    <a-entity class="ar-panel" position="0 0.55 0">
+      <a-text class="ar-city-text" value="San Francisco" align="center" color="#ffffff" width="0.9" position="0 0.03 0" scale="0.45 0.45 0.45"></a-text>
+      <a-text class="ar-wx-text" value="—" align="center" color="#00c6ff" width="0.9" position="0 -0.03 0" scale="0.35 0.35 0.35"></a-text>
+    </a-entity>
+  </a-entity>
+
+  <a-entity id="dir-light-marker" light="type: directional; intensity: 1.0; color: #ffffff" position="1 2 1"></a-entity>
+  <a-entity id="amb-light-marker" light="type: ambient; intensity: 0.4; color: #b0c4de"></a-entity>
+</a-scene>
+
+<!-- ── MARKERLESS AR (scene created on demand so Marker camera is not blocked) ── -->
+<div id="markerless-wrap">
+  <video id="ml-camera" playsinline webkit-playsinline autoplay muted></video>
+  <div id="ml-scene-host"></div>
+</div>
+
+<div id="ui-overlay">
+  <span id="app-title">🌐 City AR</span>
+  <span id="live-weather">—</span>
+  <button id="home-btn" onclick="goHome()">Home</button>
+</div>
+
+<div id="city-tabs">
+  <button class="city-tab active" onclick="selectMarkerlessCity(0)">🌴 Colombo</button>
+  <button class="city-tab" onclick="selectMarkerlessCity(1)">🎡 London</button>
+  <button class="city-tab" onclick="selectMarkerlessCity(2)">🗽 New York</button>
+  <button class="city-tab" onclick="selectMarkerlessCity(3)">🌉 San Francisco</button>
+</div>
+
+<p id="mode-hint"></p>
+<div id="toast"></div>
+<div id="screen-flash"></div>
+<div id="fog-overlay"></div>
+<div id="sun-tint"></div>
+<div id="rain-tint"></div>
+
+<script>
+(function registerARComponents () {
+  const THREE = AFRAME.THREE;
+
+  AFRAME.registerComponent('fit-to-marker', {
+    schema: {
+      size: { type: 'number', default: 0.85 },
+      fallback: { type: 'number', default: 0.05 }
+    },
+    init: function () {
+      this.fitted = false;
+      this.onLoaded = () => { this.fitted = false; this.fit(); };
+      this.el.addEventListener('model-loaded', this.onLoaded);
+      this.el.object3D.scale.set(this.data.fallback, this.data.fallback, this.data.fallback);
+      if (this.el.getObject3D('mesh')) setTimeout(() => this.fit(), 50);
+    },
+    getLocalBox: function (model) {
+      const box = new THREE.Box3();
+      const tmpBox = new THREE.Box3();
+      const tmpMat = new THREE.Matrix4();
+      model.traverse((node) => {
+        const geom = node.geometry;
+        if (!geom) return;
+        if (typeof geom.computeBoundingBox === 'function') geom.computeBoundingBox();
+        if (!geom.boundingBox || geom.boundingBox.isEmpty()) return;
+        tmpMat.identity();
+        let current = node;
+        while (current && current !== model.parent) {
+          current.updateMatrix();
+          tmpMat.premultiply(current.matrix);
+          current = current.parent;
+        }
+        tmpBox.copy(geom.boundingBox).applyMatrix4(tmpMat);
+        if (box.isEmpty()) box.copy(tmpBox);
+        else box.union(tmpBox);
+      });
+      return box;
+    },
+    fit: function () {
+      const model = this.el.getObject3D('mesh');
+      if (!model) return;
+      try {
+        this.el.object3D.scale.set(1, 1, 1);
+        this.el.object3D.position.set(0, 0, 0);
+        let box = this.getLocalBox(model);
+        if (box.isEmpty()) {
+          model.updateMatrixWorld(true);
+          box = new THREE.Box3().setFromObject(model);
+        }
+        const sizeVec = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z);
+        if (!box.isEmpty() && maxDim && isFinite(maxDim)) {
+          const scale = this.data.size / maxDim;
+          this.el.object3D.scale.set(scale, scale, scale);
+          const center = box.getCenter(new THREE.Vector3());
+          this.el.object3D.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+        } else {
+          this.el.object3D.scale.set(this.data.fallback, this.data.fallback, this.data.fallback);
+        }
+        this.fitted = true;
+      } catch (e) {
+        this.el.object3D.scale.set(this.data.fallback, this.data.fallback, this.data.fallback);
+      }
+    },
+    remove: function () {
+      this.el.removeEventListener('model-loaded', this.onLoaded);
+    }
+  });
+
+  /* ── Rich weather particles: rain / snow / thunder ── */
+  AFRAME.registerComponent('weather-rain', {
+    schema: {
+      count: { type: 'int', default: 180 },
+      area: { type: 'number', default: 0.85 },
+      height: { type: 'number', default: 1.0 },
+      speed: { type: 'number', default: 1.4 },
+      wind: { type: 'number', default: 0.18 }
+    },
+    init: function () {
+      this.enabled = false;
+      this.mode = 'rain';
+      this.drops = [];
+      const group = new THREE.Group();
+      this.group = group;
+      this.el.setObject3D('rain-group', group);
+
+      // long, slim, tilted rain streaks
+      const rainMat = new THREE.MeshBasicMaterial({
+        color: 0xcfe4ff, transparent: true, opacity: 0.75, depthWrite: false
+      });
+      const snowMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false
+      });
+      this.rainMat = rainMat;
+      this.snowMat = snowMat;
+
+      const rainGeom = new THREE.CylinderGeometry(0.0025, 0.0015, 0.16, 4);
+      const snowGeom = new THREE.SphereGeometry(0.012, 6, 6);
+
+      for (let i = 0; i < this.data.count; i++) {
+        const rain = new THREE.Mesh(rainGeom, rainMat);
+        const snow = new THREE.Mesh(snowGeom, snowMat);
+        rain.position.set(
+          (Math.random() - 0.5) * this.data.area,
+          Math.random() * this.data.height,
+          (Math.random() - 0.5) * this.data.area
+        );
+        snow.position.copy(rain.position);
+        // rain tilts slightly with wind
+        rain.rotation.z = -Math.atan2(this.data.wind, 1);
+        rain.userData.speed = 0.9 + Math.random() * this.data.speed;
+        snow.userData.speed = 0.15 + Math.random() * 0.25;
+        snow.userData.swayPhase = Math.random() * Math.PI * 2;
+        snow.userData.baseX = rain.position.x;
+        group.add(rain);
+        group.add(snow);
+        this.drops.push({ rain: rain, snow: snow });
+      }
+      group.visible = false;
+      this.setMode('rain');
+    },
+    setMode: function (mode) {
+      this.mode = mode;
+      for (let i = 0; i < this.drops.length; i++) {
+        const d = this.drops[i];
+        d.rain.visible = (mode === 'rain');
+        d.snow.visible = (mode === 'snow');
+      }
+    },
+    setActive: function (on, mode) {
+      this.enabled = !!on;
+      if (mode) this.setMode(mode);
+      if (this.group) this.group.visible = this.enabled;
+    },
+    tick: function (t, dt) {
+      if (!this.enabled) return;
+      const step = (dt || 16) * 0.001;
+      const h = this.data.height;
+      const a = this.data.area;
+      const wind = this.data.wind;
+      if (this.mode === 'rain') {
+        for (let i = 0; i < this.drops.length; i++) {
+          const d = this.drops[i].rain;
+          d.position.y -= d.userData.speed * step;
+          d.position.x += wind * step;
+          if (d.position.y < 0 || d.position.x > a) {
+            d.position.y = h;
+            d.position.x = (Math.random() - 0.5) * a;
+            d.position.z = (Math.random() - 0.5) * a;
+          }
+        }
+      } else if (this.mode === 'snow') {
+        for (let i = 0; i < this.drops.length; i++) {
+          const d = this.drops[i].snow;
+          d.position.y -= d.userData.speed * step;
+          d.userData.swayPhase += step * 1.4;
+          d.position.x = d.userData.baseX + Math.sin(d.userData.swayPhase) * 0.05;
+          if (d.position.y < 0) {
+            d.position.y = h;
+            d.userData.baseX = (Math.random() - 0.5) * a;
+            d.position.z = (Math.random() - 0.5) * a;
+          }
+        }
+      }
+    },
+    remove: function () { this.el.removeObject3D('rain-group'); }
+  });
+
+  /* ── Sun with rotating rays + pulsing glow ── */
+  AFRAME.registerComponent('sun-rays', {
+    init: function () {
+      const group = new THREE.Group();
+      this.group = group;
+      this.el.setObject3D('rays', group);
+
+      const glowGeom = new THREE.CircleGeometry(0.22, 32);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0xffcf70, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide
+      });
+      this.glow = new THREE.Mesh(glowGeom, glowMat);
+      this.glow.position.z = -0.02;
+      group.add(this.glow);
+
+      const rayMat = new THREE.MeshBasicMaterial({
+        color: 0xffe08a, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide
+      });
+      this.rays = [];
+      for (let i = 0; i < 14; i++) {
+        const geom = new THREE.PlaneGeometry(0.02, 0.16);
+        const ray = new THREE.Mesh(geom, rayMat);
+        const angle = (i / 14) * Math.PI * 2;
+        ray.position.set(Math.cos(angle) * 0.18, Math.sin(angle) * 0.18, -0.01);
+        ray.rotation.z = angle - Math.PI / 2;
+        group.add(ray);
+        this.rays.push(ray);
+      }
+    },
+    tick: function (t, dt) {
+      if (!this.el.getAttribute('visible')) return;
+      if (this.group) this.group.rotation.z += 0.0006 * (dt || 16);
+      if (this.glow) {
+        const s = 1 + Math.sin(t * 0.003) * 0.18;
+        this.glow.scale.set(s, s, 1);
+      }
+    },
+    remove: function () { this.el.removeObject3D('rays'); }
+  });
+
+  /* ── Cloud drift + soft sway ── */
+  AFRAME.registerComponent('cloud-drift', {
+    init: function () {
+      this.baseY = this.el.object3D.position.y;
+      this.startYaw = this.el.object3D.rotation.y;
+    },
+    tick: function (t, dt) {
+      if (!this.el.getAttribute('visible')) return;
+      this.el.object3D.rotation.y = this.startYaw + Math.sin(t * 0.00035) * 0.35;
+      this.el.object3D.position.y = this.baseY + Math.sin(t * 0.0008) * 0.015;
+    }
+  });
+
+  /* ── Rotate (1 finger) + Pinch to zoom (2 fingers) ── */
+  AFRAME.registerComponent('touch-rotate', {
+    schema: {
+      speed: { type: 'number', default: 0.55 },
+      always: { type: 'boolean', default: false },
+      minZoom: { type: 'number', default: 0.4 },
+      maxZoom: { type: 'number', default: 3.5 }
+    },
+    init: function () {
+      this.tracked = false;
+      this.dragging = false;
+      this.rotationY = 0;
+      this.lastX = 0;
+      this.bound = false;
+
+      // pinch state
+      this.pinching = false;
+      this.pinchStartDist = 0;
+      this.pinchStartScale = 1;
+      this.baseScale = null;
+
+      this.targetEl = this.el.closest('[mindar-image-target]') || this.el.parentEl;
+      if (this.targetEl && this.targetEl.hasAttribute('mindar-image-target')) {
+        this.targetEl.addEventListener('targetFound', () => { this.tracked = true; });
+        this.targetEl.addEventListener('targetLost', () => {
+          this.tracked = false;
+          this.dragging = false;
+          this.pinching = false;
+        });
+      }
+
+      // Capture base scale when model has fitted (only for the model itself, not wrappers)
+      this.el.addEventListener('model-loaded', () => {
+        setTimeout(() => {
+          this.baseScale = this.el.object3D.scale.x || 1;
+        }, 250);
+      });
+      // For wrappers (like markerless rotator), base scale = current scale
+      setTimeout(() => {
+        if (this.baseScale == null) this.baseScale = this.el.object3D.scale.x || 1;
+      }, 800);
+
+      this.isUsable = () => {
+        if (this.data.always) return document.body.dataset.arMode === 'markerless';
+        if (document.body.dataset.arMode !== 'marker') return false;
+        if (this.tracked) return true;
+        return !!(this.targetEl && this.targetEl.object3D && this.targetEl.object3D.visible);
+      };
+
+      this.isUiTouch = (e) => {
+        return e && e.target && e.target.closest &&
+          e.target.closest('button, #city-tabs, #start-screen, #ui-overlay');
+      };
+
+      this.onStart = (x, e) => {
+        if (this.isUiTouch(e)) return;
+        if (!this.isUsable()) return;
+        this.dragging = true;
+        this.lastX = x;
+      };
+      this.onMove = (x, e) => {
+        if (!this.dragging || !this.isUsable()) return;
+        const deltaX = x - this.lastX;
+        this.lastX = x;
+        this.rotationY += deltaX * this.data.speed;
+        this.el.object3D.rotation.y = THREE.MathUtils.degToRad(this.rotationY);
+        if (e && e.cancelable) e.preventDefault();
+      };
+      this.onEnd = () => { this.dragging = false; };
+
+      this.pinchDist = (e) => {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        return Math.hypot(dx, dy);
+      };
+
+      this.applyZoom = (userZoom) => {
+        const base = this.baseScale || 1;
+        const min = base * this.data.minZoom;
+        const max = base * this.data.maxZoom;
+        const s = Math.min(max, Math.max(min, base * userZoom));
+        this.el.object3D.scale.set(s, s, s);
+      };
+
+      this.touchStart = (e) => {
+        if (this.isUiTouch(e)) return;
+        if (e.touches.length === 1) {
+          this.onStart(e.touches[0].clientX, e);
+        } else if (e.touches.length === 2 && this.isUsable()) {
+          this.pinching = true;
+          this.dragging = false;
+          this.pinchStartDist = this.pinchDist(e);
+          this.pinchStartScale = this.el.object3D.scale.x || 1;
+          if (e.cancelable) e.preventDefault();
+        }
+      };
+      this.touchMove = (e) => {
+        if (this.pinching && e.touches.length === 2) {
+          const d = this.pinchDist(e);
+          if (this.pinchStartDist > 0) {
+            const ratio = d / this.pinchStartDist;
+            const base = this.baseScale || 1;
+            const proposed = this.pinchStartScale * ratio;
+            const min = base * this.data.minZoom;
+            const max = base * this.data.maxZoom;
+            const s = Math.min(max, Math.max(min, proposed));
+            this.el.object3D.scale.set(s, s, s);
+          }
+          if (e.cancelable) e.preventDefault();
+          return;
+        }
+        if (e.touches.length === 1) this.onMove(e.touches[0].clientX, e);
+      };
+      this.touchEnd = (e) => {
+        if (e.touches.length < 2) this.pinching = false;
+        if (e.touches.length === 0) this.dragging = false;
+      };
+      this.mouseDown = (e) => this.onStart(e.clientX, e);
+      this.mouseMove = (e) => this.onMove(e.clientX, e);
+      this.mouseUp = () => this.onEnd();
+
+      // Mouse wheel zoom (desktop)
+      this.wheel = (e) => {
+        if (!this.isUsable()) return;
+        const base = this.baseScale || 1;
+        const min = base * this.data.minZoom;
+        const max = base * this.data.maxZoom;
+        const factor = e.deltaY < 0 ? 1.1 : 0.9;
+        const current = this.el.object3D.scale.x || 1;
+        const s = Math.min(max, Math.max(min, current * factor));
+        this.el.object3D.scale.set(s, s, s);
+        e.preventDefault();
+      };
+
+      const bind = () => {
+        if (this.bound) return;
+        this.bound = true;
+        window.addEventListener('touchstart', this.touchStart, { passive: false });
+        window.addEventListener('touchmove', this.touchMove, { passive: false });
+        window.addEventListener('touchend', this.touchEnd);
+        window.addEventListener('mousedown', this.mouseDown);
+        window.addEventListener('mousemove', this.mouseMove);
+        window.addEventListener('mouseup', this.mouseUp);
+        window.addEventListener('wheel', this.wheel, { passive: false });
+      };
+
+      if (this.el.sceneEl) {
+        if (this.el.sceneEl.hasLoaded) bind();
+        else this.el.sceneEl.addEventListener('loaded', bind);
+        this.el.sceneEl.addEventListener('renderstart', bind);
+      } else setTimeout(bind, 300);
+    },
+    remove: function () {
+      window.removeEventListener('touchstart', this.touchStart);
+      window.removeEventListener('touchmove', this.touchMove);
+      window.removeEventListener('touchend', this.touchEnd);
+      window.removeEventListener('mousedown', this.mouseDown);
+      window.removeEventListener('mousemove', this.mouseMove);
+      window.removeEventListener('mouseup', this.mouseUp);
+      window.removeEventListener('wheel', this.wheel);
+    }
+  });
+})();
+
+(function () {
+  'use strict';
+
+  const API_KEY = '0569b9f28c950849356803aeede49108';
+  const CITIES = [
+    { name: 'Colombo', emoji: '🌴', markerModel: '#model-0', mlModel: '#ml-model-0' },
+    { name: 'London', emoji: '🎡', markerModel: '#model-1', mlModel: '#ml-model-1' },
+    { name: 'New York', emoji: '🗽', markerModel: '#model-2', mlModel: '#ml-model-2' },
+    { name: 'San Francisco', emoji: '🌉', markerModel: '#model-3', mlModel: '#ml-model-3' },
+  ];
+
+  const weatherCache = {};
+  let currentMode = null;
+  let mlCityIdx = 0;
+  let mlStream = null;
+
+  const startScreen = document.getElementById('start-screen');
+  const markerScene = document.getElementById('marker-scene');
+  const markerlessWrap = document.getElementById('markerless-wrap');
+  const mlSceneHost = document.getElementById('ml-scene-host');
+  const mlCamera = document.getElementById('ml-camera');
+  const uiOverlay = document.getElementById('ui-overlay');
+  const cityTabs = document.getElementById('city-tabs');
+  const modeHint = document.getElementById('mode-hint');
+  const liveWeather = document.getElementById('live-weather');
+  const appTitle = document.getElementById('app-title');
+  const toast = document.getElementById('toast');
+
+  function conditionEmoji (cond) {
+    return { Clear:'☀️', Clouds:'☁️', Rain:'🌧️', Drizzle:'🌦️',
+             Thunderstorm:'⛈️', Snow:'❄️', Mist:'🌫️', Fog:'🌫️', Haze:'🌫️' }[cond] || '🌡️';
+  }
+
+  let toastTimer;
+  function showToast (msg, dur = 3000) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), dur);
+  }
+
+  const screenFlash = document.getElementById('screen-flash');
+  const fogOverlay = document.getElementById('fog-overlay');
+  const sunTint = document.getElementById('sun-tint');
+  const rainTint = document.getElementById('rain-tint');
+
+  let lightningTimer = null;
+  function stopLightning () {
+    if (lightningTimer) { clearTimeout(lightningTimer); lightningTimer = null; }
+    if (screenFlash) screenFlash.classList.remove('flash');
+  }
+  function startLightning () {
+    stopLightning();
+    const flash = () => {
+      screenFlash.classList.add('flash');
+      setTimeout(() => screenFlash.classList.remove('flash'), 90);
+      setTimeout(() => {
+        screenFlash.classList.add('flash');
+        setTimeout(() => screenFlash.classList.remove('flash'), 60);
+      }, 180);
+      const next = 3000 + Math.random() * 4000;
+      lightningTimer = setTimeout(flash, next);
+    };
+    lightningTimer = setTimeout(flash, 1500);
+  }
+
+  function setOverlayTints (cond) {
+    const isRain = cond === 'Rain' || cond === 'Drizzle' || cond === 'Thunderstorm';
+    const isClear = cond === 'Clear';
+    const isFog = cond === 'Mist' || cond === 'Fog' || cond === 'Haze';
+    rainTint.classList.toggle('visible', isRain);
+    sunTint.classList.toggle('visible', isClear);
+    fogOverlay.classList.toggle('visible', isFog);
+    if (cond === 'Thunderstorm') startLightning();
+    else stopLightning();
+  }
+
+  function clearFX (root) {
+    const rain = root.querySelector('.ar-rain');
+    const sun = root.querySelector('.ar-sun');
+    const cloud = root.querySelector('.ar-cloud');
+    if (rain && rain.components['weather-rain']) rain.components['weather-rain'].setActive(false);
+    if (sun) sun.setAttribute('visible', false);
+    if (cloud) cloud.setAttribute('visible', false);
+  }
+
+  function applyARWeatherFX (root, cond, lightIds) {
+    clearFX(root);
+    const rain = root.querySelector('.ar-rain');
+    const sun = root.querySelector('.ar-sun');
+    const cloud = root.querySelector('.ar-cloud');
+
+    let lightVal = 0.9, ambVal = 0.4, ambColor = '#b0c4de', dirColor = '#ffffff';
+
+    if (cond === 'Rain' || cond === 'Drizzle' || cond === 'Thunderstorm') {
+      if (rain && rain.components['weather-rain']) rain.components['weather-rain'].setActive(true, 'rain');
+      if (cloud) cloud.setAttribute('visible', true);
+      lightVal = cond === 'Thunderstorm' ? 0.25 : 0.4;
+      ambVal = 0.22; ambColor = '#6a7a9a'; dirColor = '#9bb0c9';
+    } else if (cond === 'Clear') {
+      if (sun) sun.setAttribute('visible', true);
+      lightVal = 1.4; ambVal = 0.65; ambColor = '#fff1c2'; dirColor = '#fff4d2';
+    } else if (cond === 'Clouds') {
+      if (cloud) cloud.setAttribute('visible', true);
+      lightVal = 0.78; ambVal = 0.42; ambColor = '#c5d0df'; dirColor = '#d7e0ea';
+    } else if (cond === 'Snow') {
+      if (rain && rain.components['weather-rain']) rain.components['weather-rain'].setActive(true, 'snow');
+      if (cloud) cloud.setAttribute('visible', true);
+      lightVal = 0.8; ambVal = 0.55; ambColor = '#eaf2ff'; dirColor = '#e8f1ff';
+    } else if (cond === 'Mist' || cond === 'Fog' || cond === 'Haze') {
+      if (cloud) cloud.setAttribute('visible', true);
+      lightVal = 0.55; ambVal = 0.45; ambColor = '#c8d2de'; dirColor = '#cfd7e2';
+    }
+
+    const dir = document.getElementById(lightIds.dir);
+    const amb = document.getElementById(lightIds.amb);
+    if (dir) dir.setAttribute('light', `type: directional; intensity: ${lightVal}; color: ${dirColor}`);
+    if (amb) amb.setAttribute('light', `type: ambient; intensity: ${ambVal}; color: ${ambColor}`);
+
+    setOverlayTints(cond);
+  }
+
+  function updateMarkerPanel (idx, d) {
+    const targets = markerScene.querySelectorAll('[mindar-image-target]');
+    const target = targets[idx];
+    if (!target) return;
+    const cond = d.weather[0].main;
+    const cityText = target.querySelector('.ar-city-text');
+    const wxText = target.querySelector('.ar-wx-text');
+    if (cityText) cityText.setAttribute('value', `${CITIES[idx].emoji} ${d.name}`);
+    if (wxText) wxText.setAttribute('value',
+      `${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C · ${d.weather[0].description}`);
+    applyARWeatherFX(target, cond, { dir: 'dir-light-marker', amb: 'amb-light-marker' });
+  }
+
+  function updateMarkerlessPanel (idx, d) {
+    const stage = document.getElementById('ml-stage');
+    const cond = d.weather[0].main;
+    document.getElementById('ml-city-text').setAttribute('value', `${CITIES[idx].emoji} ${d.name}`);
+    document.getElementById('ml-wx-text').setAttribute('value',
+      `${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C · ${d.weather[0].description}`);
+    applyARWeatherFX(stage, cond, { dir: 'dir-light-ml', amb: 'amb-light-ml' });
+    liveWeather.textContent = `${CITIES[idx].emoji} ${d.name} · ${conditionEmoji(cond)} ${Math.round(d.main.temp)}°C`;
+  }
+
+  async function fetchWeatherForCity (idx) {
+    const city = CITIES[idx];
+    try {
+      const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city.name)}&appid=${API_KEY}&units=metric`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      weatherCache[city.name] = data;
+      updateMarkerPanel(idx, data);
+      return data;
+    } catch (err) {
+      const fake = {
+        name: city.name,
+        main: { temp: 20, feels_like: 18, humidity: 55 },
+        wind: { speed: 4 },
+        weather: [{ main: 'Rain', description: 'light rain' }]
+      };
+      weatherCache[city.name] = fake;
+      updateMarkerPanel(idx, fake);
+      return fake;
+    }
+  }
+
+  function destroyMarkerlessScene () {
+    if (mlSceneHost) mlSceneHost.innerHTML = '';
+  }
+
+  function ensureMarkerlessScene () {
+    if (document.getElementById('markerless-scene')) return Promise.resolve();
+    mlSceneHost.innerHTML = `
+      <a-scene id="markerless-scene" embedded vr-mode-ui="enabled: false"
+        device-orientation-permission-ui="enabled: false"
+        renderer="colorManagement: true; alpha: true; antialias: true">
+        <a-assets>
+          <a-asset-item id="ml-model-0" src="./models/colombo_city.glb"></a-asset-item>
+          <a-asset-item id="ml-model-1" src="./models/london_city.glb"></a-asset-item>
+          <a-asset-item id="ml-model-2" src="./models/new_york_city.glb"></a-asset-item>
+          <a-asset-item id="ml-model-3" src="./models/san_francisco_city.glb"></a-asset-item>
+        </a-assets>
+        <a-camera position="0 1.4 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
+        <a-entity id="ml-stage" position="0 0.9 -2.2">
+          <a-entity id="ml-rotator" touch-rotate="always: true">
+            <a-entity id="ml-city-0" visible="true">
+              <a-entity class="ar-model" gltf-model="#ml-model-0" fit-to-marker="size: 1.4; fallback: 0.08"></a-entity>
+            </a-entity>
+            <a-entity id="ml-city-1" visible="false">
+              <a-entity class="ar-model" gltf-model="#ml-model-1" fit-to-marker="size: 1.55; fallback: 0.1"></a-entity>
+            </a-entity>
+            <a-entity id="ml-city-2" visible="false">
+              <a-entity class="ar-model" gltf-model="#ml-model-2" fit-to-marker="size: 1.55; fallback: 0.08"></a-entity>
+            </a-entity>
+            <a-entity id="ml-city-3" visible="false">
+              <a-entity class="ar-model" gltf-model="#ml-model-3" fit-to-marker="size: 1.55; fallback: 0.08"></a-entity>
+            </a-entity>
+          </a-entity>
+          <a-entity class="ar-rain" weather-rain="area: 1.6; height: 1.8; count: 260; wind: 0.22" position="0 0.9 0"></a-entity>
+          <a-entity class="ar-sun" sun-rays visible="false" position="0.7 1.35 -0.2">
+            <a-sphere radius="0.13" color="#ffd54a" material="shader: flat; emissive: #ffcc33; emissiveIntensity: 1.7"></a-sphere>
+            <a-entity light="type: point; color: #ffd27a; intensity: 1.5; distance: 6"></a-entity>
+          </a-entity>
+          <a-entity class="ar-cloud" cloud-drift visible="false" position="0 1.3 0" scale="0.36 0.24 0.36">
+            <a-sphere position="-0.6 0 0" radius="0.75" color="#c9d3e3" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
+            <a-sphere position="0.15 0.18 -0.1" radius="0.9" color="#e0e7f2" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
+            <a-sphere position="0.75 0 0.05" radius="0.7" color="#c9d3e3" opacity="0.85" material="transparent: true; shader: flat"></a-sphere>
+            <a-sphere position="-0.2 -0.15 0.2" radius="0.6" color="#b7c2d4" opacity="0.75" material="transparent: true; shader: flat"></a-sphere>
+          </a-entity>
+          <a-entity class="ar-panel" position="0 0.95 0">
+            <a-text id="ml-city-text" value="Colombo" align="center" color="#ffffff" width="3" position="0 0.08 0"></a-text>
+            <a-text id="ml-wx-text" value="—" align="center" color="#00c6ff" width="3" position="0 -0.08 0"></a-text>
+          </a-entity>
+        </a-entity>
+        <a-entity id="dir-light-ml" light="type: directional; intensity: 1.0; color: #ffffff" position="1 3 1"></a-entity>
+        <a-entity id="amb-light-ml" light="type: ambient; intensity: 0.45; color: #b0c4de"></a-entity>
+      </a-scene>`;
+
+    return new Promise((resolve) => {
+      const scene = document.getElementById('markerless-scene');
+      const ready = () => {
+        try {
+          if (scene.renderer) scene.renderer.setClearColor(0x000000, 0);
+        } catch (e) {}
+        resolve();
+      };
+      if (scene.hasLoaded) ready();
+      else scene.addEventListener('loaded', ready, { once: true });
+    });
+  }
+
+  async function startMarkerlessCamera () {
+    if (mlStream) return;
+    mlStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    mlCamera.setAttribute('playsinline', '');
+    mlCamera.setAttribute('webkit-playsinline', '');
+    mlCamera.muted = true;
+    mlCamera.srcObject = mlStream;
+    await mlCamera.play();
+  }
+
+  function stopMarkerlessCamera () {
+    if (!mlStream) return;
+    mlStream.getTracks().forEach((t) => t.stop());
+    mlStream = null;
+    mlCamera.srcObject = null;
+  }
+
+  function stopMindAR () {
+    try {
+      const sys = markerScene.systems && markerScene.systems['mindar-image-system'];
+      if (sys && typeof sys.stop === 'function') sys.stop();
+      const comp = markerScene.components['mindar-image'];
+      if (comp && typeof comp.stop === 'function') comp.stop();
+    } catch (e) {}
+    markerScene.classList.remove('active');
+  }
+
+  function startMindAR () {
+    markerScene.classList.add('active');
+    const run = () => {
+      try {
+        const sys = markerScene.systems && markerScene.systems['mindar-image-system'];
+        if (sys && typeof sys.start === 'function') {
+          sys.start();
+          return;
+        }
+        const comp = markerScene.components['mindar-image'];
+        if (comp && typeof comp.start === 'function') comp.start();
+      } catch (e) {
+        showToast('⚠️ Could not start Marker AR');
+      }
+    };
+    if (markerScene.hasLoaded) setTimeout(run, 50);
+    else markerScene.addEventListener('loaded', () => setTimeout(run, 50), { once: true });
+  }
+
+  window.startMode = async function (mode) {
+    startScreen.classList.add('hidden');
+    uiOverlay.classList.add('visible');
+    modeHint.classList.add('visible');
+    currentMode = mode;
+    document.body.dataset.arMode = mode;
+    document.body.classList.add('ar-live');
+
+    if (mode === 'marker') {
+      appTitle.textContent = '🎯 Marker AR';
+      liveWeather.textContent = 'Point at a marker';
+      modeHint.textContent = '📸 Point at a city image · 👆 drag to rotate · 🤏 pinch to zoom';
+      cityTabs.classList.remove('visible');
+      markerlessWrap.style.display = 'none';
+      stopMarkerlessCamera();
+      destroyMarkerlessScene();
+      startMindAR();
+      showToast('Marker AR selected — allow camera', 2500);
+    } else {
+      appTitle.textContent = '📱 Markerless AR';
+      modeHint.textContent = '📱 Tap a city · 👆 drag to rotate · 🤏 pinch to zoom';
+      cityTabs.classList.add('visible');
+      stopMindAR();
+      markerlessWrap.style.display = 'block';
+      try {
+        await startMarkerlessCamera();
+        await ensureMarkerlessScene();
+        selectMarkerlessCity(mlCityIdx);
+        showToast('Markerless AR selected', 2000);
+      } catch (err) {
+        toast.style.background = 'rgba(220,50,50,.9)';
+        showToast('⚠️ Camera permission needed for Markerless AR');
+      }
+    }
+  };
+
+  window.goHome = function () {
+    stopMindAR();
+    stopMarkerlessCamera();
+    destroyMarkerlessScene();
+    markerlessWrap.style.display = 'none';
+    document.body.classList.remove('ar-live');
+    uiOverlay.classList.remove('visible');
+    cityTabs.classList.remove('visible');
+    modeHint.classList.remove('visible');
+    startScreen.classList.remove('hidden');
+    currentMode = null;
+    document.body.dataset.arMode = '';
+    // clear atmospheric overlays
+    stopLightning();
+    if (rainTint) rainTint.classList.remove('visible');
+    if (sunTint) sunTint.classList.remove('visible');
+    if (fogOverlay) fogOverlay.classList.remove('visible');
+  };
+
+  window.selectMarkerlessCity = async function (idx) {
+    mlCityIdx = idx;
+    document.querySelectorAll('.city-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+
+    for (let i = 0; i < CITIES.length; i++) {
+      const cityWrap = document.getElementById('ml-city-' + i);
+      if (cityWrap) cityWrap.setAttribute('visible', i === idx);
+    }
+
+    let data = weatherCache[CITIES[idx].name];
+    if (!data) data = await fetchWeatherForCity(idx);
+    updateMarkerlessPanel(idx, data);
+  };
+
+  markerScene.addEventListener('arReady', () => {
+    if (currentMode === 'marker') showToast('📸 Marker AR ready', 2500);
+  });
+  markerScene.addEventListener('arError', () => {
+    toast.style.background = 'rgba(220,50,50,.9)';
+    showToast('⚠️ Camera permission needed');
+  });
+
+  markerScene.querySelectorAll('[mindar-image-target]').forEach((targetEl, idx) => {
+    targetEl.addEventListener('targetFound', async () => {
+      if (currentMode !== 'marker') return;
+      const city = CITIES[idx];
+      let data = weatherCache[city.name];
+      if (!data) data = await fetchWeatherForCity(idx);
+      else updateMarkerPanel(idx, data);
+      const cond = data.weather[0].main;
+      liveWeather.textContent = `${city.emoji} ${city.name} · ${conditionEmoji(cond)} ${Math.round(data.main.temp)}°C`;
+      showToast(`${city.emoji} ${city.name} · ${conditionEmoji(cond)} ${cond}`, 2200);
+    });
+    targetEl.addEventListener('targetLost', () => {
+      // hide screen tints so they don't linger over empty camera view
+      stopLightning();
+      if (rainTint) rainTint.classList.remove('visible');
+      if (sunTint) sunTint.classList.remove('visible');
+      if (fogOverlay) fogOverlay.classList.remove('visible');
+    });
+  });
+
+  window.addEventListener('load', () => {
+    setTimeout(() => {
+      CITIES.forEach((_, idx) => fetchWeatherForCity(idx));
+    }, 1200);
+  });
+})();
+</script>
+</body>
+</html>
