@@ -1512,10 +1512,9 @@
     if (document.getElementById('markerless-scene')) return Promise.resolve();
     mlSceneHost.innerHTML = `
       <a-scene id="markerless-scene"
-        webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay,anchors,plane-detection; overlayElement: body;"
+        webxr="requiredFeatures: hit-test; optionalFeatures: local-floor;"
         ar-hit-test="target: #ml-placement; enabled: true; footprintDepth: 0.2"
         vr-mode-ui="enabled: false"
-        xr-mode-ui="enabled: false"
         renderer="colorManagement: true; alpha: true; antialias: true">
         <a-assets timeout="60000">
           <a-asset-item id="ml-model-0" src="./models/colombo_city.glb"></a-asset-item>
@@ -1602,19 +1601,38 @@
     const statusEl = document.getElementById('ml-status');
     const repoBtn  = document.getElementById('ml-reposition');
 
+    // Force the renderer to be transparent whenever XR starts, so the
+    // camera passthrough shows behind the 3D scene (fixes black screen).
+    const forceTransparent = () => {
+      try {
+        const r = scene.renderer;
+        if (r) {
+          r.setClearColor(0x000000, 0);
+          if (r.xr && r.xr.isPresenting && r.xr.getSession()) {
+            // no-op — session exists
+          }
+        }
+      } catch (e) {}
+    };
+    scene.addEventListener('enter-vr', () => {
+      forceTransparent();
+      if (statusEl) { statusEl.textContent = '🔍 Move phone slowly over a flat surface'; statusEl.classList.add('visible'); }
+    });
+
     // Enter AR on user tap (WebXR requires user gesture)
     const startAR = async () => {
       try {
         // Release the preview stream so WebXR can grab the camera
         stopMarkerlessCamera();
+        forceTransparent();
         if (scene.enterAR) await scene.enterAR();
         else if (scene.enterVR) await scene.enterVR();
+        forceTransparent();
         enterBtn.classList.remove('visible');
-        if (statusEl) { statusEl.textContent = '🔍 Move phone slowly over a flat surface'; statusEl.classList.add('visible'); }
       } catch (err) {
         // restart camera preview if we failed to enter AR
         try { await startMarkerlessCamera(); } catch (e2) {}
-        showToast('⚠️ Could not enter AR: ' + (err.message || err), 3500);
+        showToast('⚠️ Could not enter AR: ' + (err.message || err), 4000);
       }
     };
     enterBtn.onclick = startAR;
