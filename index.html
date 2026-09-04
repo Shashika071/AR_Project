@@ -319,6 +319,11 @@
     }
     #history-strip::-webkit-scrollbar { display: none; }
     #history-strip.visible { display: flex; }
+    .hist-cell.selected {
+      background: linear-gradient(135deg, rgba(255,180,60,.4), rgba(255,120,40,.4)) !important;
+      border-color: rgba(255,180,60,.85) !important;
+      box-shadow: 0 0 0 2px rgba(255,180,60,.35);
+    }
     .hist-cell {
       min-width: 54px;
       text-align: center;
@@ -1152,21 +1157,52 @@
     } catch (e) { return ''; }
   }
 
+  // Apply a specific hour's weather (from history) to the active AR view.
+  // If the tapped hour is the "now" cell, restore the live current-weather.
+  async function applyHistoryHour (item, isNow) {
+    const cityIdx = currentMode === 'marker' ? markerCityIdx : mlCityIdx;
+    const cityName = CITIES[cityIdx].name;
+
+    if (isNow) {
+      // restore live current weather
+      const live = weatherCache[cityName] || await fetchWeatherForCity(cityIdx);
+      if (currentMode === 'marker') updateMarkerPanel(cityIdx, live);
+      else updateMarkerlessPanel(cityIdx, live);
+      showToast(`Live · ${CITIES[cityIdx].emoji} ${cityName}`, 1500);
+      return;
+    }
+
+    // synthesise an OpenWeather-shaped object from the hour so all
+    // existing update / FX / audio code just works.
+    const synthetic = {
+      name: cityName,
+      main: { temp: item.temp, feels_like: item.temp, humidity: 50 },
+      wind: { speed: 0 },
+      weather: [{ main: item.cond, description: item.cond.toLowerCase() }]
+    };
+    if (currentMode === 'marker') updateMarkerPanel(cityIdx, synthetic);
+    else updateMarkerlessPanel(cityIdx, synthetic);
+    showToast(`${formatHour(item.time)} · ${conditionEmoji(item.cond)} ${item.cond} · ${Math.round(item.temp)}°C`, 2200);
+  }
+
   function renderHistory (items) {
     const strip = document.getElementById('history-strip');
     if (!strip) return;
     strip.innerHTML = '';
     const total = items.length;
     items.forEach(function (it, i) {
+      const isNow = (i === total - 1);
       const cell = document.createElement('div');
-      cell.className = 'hist-cell' + (i === total - 1 ? ' now' : '');
+      cell.className = 'hist-cell' + (isNow ? ' now' : '');
       cell.innerHTML =
-        '<div class="h">' + formatHour(it.time) + '</div>' +
+        '<div class="h">' + (isNow ? 'Now' : formatHour(it.time)) + '</div>' +
         '<div class="e">' + conditionEmoji(it.cond) + '</div>' +
         '<div class="t">' + Math.round(it.temp) + '°</div>';
       cell.addEventListener('click', function (ev) {
         ev.stopPropagation();
-        showToast(`${formatHour(it.time)} · ${conditionEmoji(it.cond)} ${it.cond} · ${Math.round(it.temp)}°C`, 2500);
+        strip.querySelectorAll('.hist-cell').forEach(function (c) { c.classList.remove('selected'); });
+        if (!isNow) cell.classList.add('selected');
+        applyHistoryHour(it, isNow);
       });
       strip.appendChild(cell);
     });
