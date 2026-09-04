@@ -354,6 +354,53 @@
     #xr-overlay #ar-btn,
     #xr-overlay #toast { pointer-events: auto; }
 
+    /* Always-center aim marker — the 3D floor ring sits on the table, so
+       it looks off-center. This HUD stays in the middle of the screen. */
+    #aim-reticle {
+      display: none;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 72px;
+      height: 72px;
+      margin: -36px 0 0 -36px;
+      pointer-events: none;
+      z-index: 2100;
+    }
+    html.ar-session #aim-reticle { display: block; }
+    #aim-reticle .aim-ring {
+      position: absolute;
+      inset: 0;
+      border: 3px solid rgba(0, 198, 255, 0.95);
+      border-radius: 50%;
+      box-shadow: 0 0 12px rgba(0, 198, 255, 0.8);
+    }
+    #aim-reticle .aim-dot {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      margin: -5px 0 0 -5px;
+      background: #00c6ff;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #00c6ff;
+    }
+    #aim-reticle .aim-cross-h,
+    #aim-reticle .aim-cross-v {
+      position: absolute;
+      background: rgba(255,255,255,0.9);
+      left: 50%;
+      top: 50%;
+    }
+    #aim-reticle .aim-cross-h { width: 22px; height: 2px; margin: -1px 0 0 -11px; }
+    #aim-reticle .aim-cross-v { width: 2px; height: 22px; margin: -11px 0 0 -1px; }
+    #aim-reticle.locked .aim-ring {
+      border-color: #7CFFB2;
+      box-shadow: 0 0 14px rgba(124, 255, 178, 0.9);
+    }
+    #aim-reticle.locked .aim-dot { background: #7CFFB2; box-shadow: 0 0 8px #7CFFB2; }
+
     /* Centered "Start AR" call-to-action shown when Markerless AR is ready */
     #ar-cta {
       position: fixed;
@@ -547,6 +594,12 @@
   <p id="mode-hint"></p>
   <div id="history-strip"></div>
   <div id="toast"></div>
+  <div id="aim-reticle" aria-hidden="true">
+    <span class="aim-ring"></span>
+    <span class="aim-cross-h"></span>
+    <span class="aim-cross-v"></span>
+    <span class="aim-dot"></span>
+  </div>
 </div>
 
 <!-- Centered "Enter AR" call-to-action for Markerless (only when WebXR is supported) -->
@@ -893,18 +946,37 @@
       if (!refSpace) return;
       const hits = frame.getHitTestResults(this.hitTestSource);
       const reticle = document.getElementById('ml-reticle');
+      const aim = document.getElementById('aim-reticle');
       if (hits.length > 0) {
         const pose = hits[0].getPose(refSpace);
         if (pose) {
           this.hit = pose.transform.position;
           if (reticle) {
-            reticle.object3D.position.set(this.hit.x, this.hit.y, this.hit.z);
+            const t = pose.transform;
+            reticle.object3D.position.set(t.position.x, t.position.y, t.position.z);
+            if (t.orientation) {
+              reticle.object3D.quaternion.set(
+                t.orientation.x, t.orientation.y, t.orientation.z, t.orientation.w
+              );
+            }
+            // Keep the floor ring a readable size no matter the distance
+            const cam = sceneEl.camera;
+            let dist = 1.2;
+            if (cam) {
+              const cp = new THREE.Vector3();
+              cam.getWorldPosition(cp);
+              dist = Math.max(0.4, cp.distanceTo(reticle.object3D.position));
+            }
+            const s = Math.min(2.2, Math.max(0.7, dist * 0.35));
+            reticle.object3D.scale.set(s, s, s);
             reticle.setAttribute('visible', true);
           }
+          if (aim) aim.classList.add('locked');
         }
       } else {
         this.hit = null;
         if (reticle) reticle.setAttribute('visible', false);
+        if (aim) aim.classList.remove('locked');
       }
     },
     remove: function () {
@@ -1663,11 +1735,13 @@
           <a-camera position="0 1.6 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
           <!-- Reticle on the detected surface -->
-          <a-entity id="ml-reticle" visible="false" rotation="-90 0 0">
-            <a-ring color="#00c6ff" radius-inner="0.06" radius-outer="0.08"
-                    material="opacity: 0.9; transparent: true; shader: flat; side: double"></a-ring>
-            <a-ring color="#ffffff" radius-inner="0.028" radius-outer="0.034"
-                    material="opacity: 0.75; transparent: true; shader: flat; side: double"></a-ring>
+          <a-entity id="ml-reticle" visible="false">
+            <a-entity rotation="-90 0 0">
+              <a-ring color="#00c6ff" radius-inner="0.12" radius-outer="0.16"
+                      material="opacity: 0.95; transparent: true; shader: flat; side: double"></a-ring>
+              <a-ring color="#ffffff" radius-inner="0.04" radius-outer="0.055"
+                      material="opacity: 0.9; transparent: true; shader: flat; side: double"></a-ring>
+            </a-entity>
           </a-entity>
 
           <!-- Placement anchor: sits on the surface once user taps -->
