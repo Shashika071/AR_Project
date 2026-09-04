@@ -39,6 +39,22 @@
       font-family: 'Segoe UI', system-ui, sans-serif;
     }
     body.ar-live { background: transparent; }
+    /* During WebXR the camera is behind the page. Anything opaque on the
+       overlay (especially body/html backgrounds) paints a black screen. */
+    html.ar-session,
+    html.ar-session body {
+      background: transparent !important;
+    }
+    html.ar-session #fog-overlay,
+    html.ar-session #sun-tint,
+    html.ar-session #rain-tint,
+    html.ar-session #screen-flash,
+    html.ar-session #ml-camera,
+    html.ar-session #ar-cta,
+    html.ar-session #start-screen,
+    html.ar-session #marker-scene {
+      display: none !important;
+    }
 
     #marker-scene {
       position: fixed;
@@ -319,22 +335,24 @@
     }
     #mute-btn.muted { opacity: .55; }
 
-    /* DOM overlay container used by WebXR while the AR session is active.
-       Empty by default — UI panels stay in normal document flow.
-       The overlay is invisible/pass-through when not in XR. */
-    #ml-dom-overlay { position: absolute; inset: 0; pointer-events: none; }
-
-    /* While in a WebXR AR session we make the body pass through touches
-       except on UI widgets so the "tap to place" event still reaches WebXR. */
-    body.ar-live-xr { pointer-events: none; background: transparent; }
-    body.ar-live-xr #ui-overlay,
-    body.ar-live-xr #city-tabs,
-    body.ar-live-xr #history-strip,
-    body.ar-live-xr #ar-cta,
-    body.ar-live-xr #toast,
-    body.ar-live-xr button,
-    body.ar-live-xr .city-tab,
-    body.ar-live-xr .hist-cell { pointer-events: auto; }
+    /* Transparent UI-only overlay for WebXR. Must NOT include the canvas
+       or a page background — those cover the live camera. */
+    #xr-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      pointer-events: none;
+      background: transparent !important;
+    }
+    #xr-overlay #ui-overlay > *,
+    #xr-overlay #city-tabs,
+    #xr-overlay .city-tab,
+    #xr-overlay #history-strip,
+    #xr-overlay .hist-cell,
+    #xr-overlay #mute-btn,
+    #xr-overlay #home-btn,
+    #xr-overlay #ar-btn,
+    #xr-overlay #toast { pointer-events: auto; }
 
     /* Centered "Start AR" call-to-action shown when Markerless AR is ready */
     #ar-cta {
@@ -507,27 +525,29 @@
 <div id="markerless-wrap">
   <video id="ml-camera" playsinline webkit-playsinline autoplay muted></video>
   <div id="ml-scene-host"></div>
-  <!-- DOM overlay for WebXR (city tabs / UI stay visible inside AR session) -->
-  <div id="ml-dom-overlay"></div>
 </div>
 
-<div id="ui-overlay">
-  <span id="app-title">🌐 City AR</span>
-  <span id="live-weather">—</span>
-  <button id="ar-btn" onclick="enterMarkerlessARClick()" title="Enter AR" style="display:none">🚀 Start AR</button>
-  <button id="mute-btn" onclick="toggleMute()" title="Sound">🔊</button>
-  <button id="home-btn" onclick="goHome()">Home</button>
-</div>
+<!-- UI-only overlay: transparent so WebXR camera can show through -->
+<div id="xr-overlay">
+  <div id="ui-overlay">
+    <span id="app-title">🌐 City AR</span>
+    <span id="live-weather">—</span>
+    <button id="ar-btn" onclick="enterMarkerlessARClick()" title="Enter AR" style="display:none">🚀 Start AR</button>
+    <button id="mute-btn" onclick="toggleMute()" title="Sound">🔊</button>
+    <button id="home-btn" onclick="goHome()">Home</button>
+  </div>
 
-<div id="city-tabs">
-  <button class="city-tab active" onclick="selectCity(0)">🌴 Colombo</button>
-  <button class="city-tab" onclick="selectCity(1)">🎡 London</button>
-  <button class="city-tab" onclick="selectCity(2)">🗽 New York</button>
-  <button class="city-tab" onclick="selectCity(3)">🌉 San Francisco</button>
-</div>
+  <div id="city-tabs">
+    <button class="city-tab active" onclick="selectCity(0)">🌴 Colombo</button>
+    <button class="city-tab" onclick="selectCity(1)">🎡 London</button>
+    <button class="city-tab" onclick="selectCity(2)">🗽 New York</button>
+    <button class="city-tab" onclick="selectCity(3)">🌉 San Francisco</button>
+  </div>
 
-<p id="mode-hint"></p>
-<div id="history-strip"></div>
+  <p id="mode-hint"></p>
+  <div id="history-strip"></div>
+  <div id="toast"></div>
+</div>
 
 <!-- Centered "Enter AR" call-to-action for Markerless (only when WebXR is supported) -->
 <div id="ar-cta">
@@ -537,7 +557,6 @@
   <button onclick="enterMarkerlessARClick()">🚀 Start AR</button>
   <small>You can pick a city and change weather from the tabs after placing.</small>
 </div>
-<div id="toast"></div>
 <div id="screen-flash"></div>
 <div id="fog-overlay"></div>
 <div id="sun-tint"></div>
@@ -787,6 +806,7 @@
           if (anchor) anchor.setAttribute('visible', false);
           if (reticle) reticle.setAttribute('visible', false);
           document.body.classList.remove('ar-live-xr');
+          document.documentElement.classList.remove('ar-session');
         });
         session.addEventListener('select', function () { self.onSelect(); });
         // Fallback: some devices don't fire XR "select"; also listen to plain taps
@@ -840,6 +860,7 @@
           if (anchor) anchor.setAttribute('visible', false);
           if (reticle) reticle.setAttribute('visible', false);
           document.body.classList.remove('ar-live-xr');
+          document.documentElement.classList.remove('ar-session');
           if (self._onTouch) window.removeEventListener('touchend', self._onTouch);
         });
         session.addEventListener('select', function () { self.onSelect(); });
@@ -1628,7 +1649,7 @@
       // AR area sizes are much smaller (city on a table diorama)
       return `
         <a-scene id="markerless-scene"
-          webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay; overlayElement: body;"
+          webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay; overlayElement: #xr-overlay;"
           ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
           renderer="colorManagement: true; alpha: true; antialias: true"
@@ -1760,25 +1781,27 @@
     } catch (e) {}
 
     try {
-      let session;
-      // Prefer the raw WebXR path — it works consistently across A-Frame versions
-      session = await navigator.xr.requestSession('immersive-ar', {
+      document.documentElement.classList.add('ar-session');
+      document.body.classList.add('ar-live-xr');
+      const overlay = document.getElementById('xr-overlay');
+      let session = await navigator.xr.requestSession('immersive-ar', {
         requiredFeatures: ['hit-test'],
         optionalFeatures: ['local-floor', 'dom-overlay'],
-        domOverlay: { root: document.body }
+        domOverlay: { root: overlay || document.body }
       });
       if (scene.renderer && scene.renderer.xr) {
         await scene.renderer.xr.setSession(session);
       }
-      showToast('📷 AR session active — point at floor/table', 2500);
+      showToast('📷 Point at a floor or table, then tap to place', 2500);
 
-      // If session ends unexpectedly, restore UI + video
       session.addEventListener('end', function () {
-        if (mlCamera) mlCamera.style.display = '';
+        document.documentElement.classList.remove('ar-session');
         document.body.classList.remove('ar-live-xr');
+        if (mlCamera) mlCamera.style.display = '';
       });
     } catch (err) {
-      // Restore UI so user can retry
+      document.documentElement.classList.remove('ar-session');
+      document.body.classList.remove('ar-live-xr');
       if (mlCamera) mlCamera.style.display = '';
       if (cta) cta.classList.add('visible');
       const msg = (err && err.message) ? err.message : String(err);
@@ -1933,6 +1956,7 @@
     if (cta) cta.classList.remove('visible');
     document.body.classList.remove('ar-live');
     document.body.classList.remove('ar-live-xr');
+    document.documentElement.classList.remove('ar-session');
     uiOverlay.classList.remove('visible');
     cityTabs.classList.remove('visible');
     modeHint.classList.remove('visible');
