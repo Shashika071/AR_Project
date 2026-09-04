@@ -39,22 +39,6 @@
       font-family: 'Segoe UI', system-ui, sans-serif;
     }
     body.ar-live { background: transparent; }
-    /* During WebXR the camera is behind the page. Anything opaque on the
-       overlay (especially body/html backgrounds) paints a black screen. */
-    html.ar-session,
-    html.ar-session body {
-      background: transparent !important;
-    }
-    html.ar-session #fog-overlay,
-    html.ar-session #sun-tint,
-    html.ar-session #rain-tint,
-    html.ar-session #screen-flash,
-    html.ar-session #ml-camera,
-    html.ar-session #ar-cta,
-    html.ar-session #start-screen,
-    html.ar-session #marker-scene {
-      display: none !important;
-    }
 
     #marker-scene {
       position: fixed;
@@ -335,59 +319,10 @@
     }
     #mute-btn.muted { opacity: .55; }
 
-    /* Transparent UI-only overlay for WebXR. Must NOT include the canvas
-       or a page background — those cover the live camera. */
-    #xr-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 2000;
-      pointer-events: none;
-      background: transparent !important;
-    }
-    #xr-overlay #ui-overlay > *,
-    #xr-overlay #city-tabs,
-    #xr-overlay .city-tab,
-    #xr-overlay #history-strip,
-    #xr-overlay .hist-cell,
-    #xr-overlay #mute-btn,
-    #xr-overlay #home-btn,
-    #xr-overlay #ar-btn,
-    #xr-overlay #toast { pointer-events: auto; }
-
-    /* Centered "Start AR" call-to-action shown when Markerless AR is ready */
-    #ar-cta {
-      position: fixed;
-      inset: 0;
-      z-index: 1900;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 14px;
-      color: #fff;
-      text-align: center;
-      padding: 24px;
-      background:
-        radial-gradient(circle at top, rgba(0, 170, 255, 0.28), transparent 42%),
-        linear-gradient(180deg, #071018 0%, #0d2438 55%, #12344f 100%);
-    }
-    #ar-cta.visible { display: flex; }
-    #ar-cta .ar-cta-emoji { font-size: 64px; line-height: 1; margin-bottom: 10px; }
-    #ar-cta h2 { font-size: clamp(22px, 6vw, 30px); margin-bottom: 4px; }
-    #ar-cta p { opacity: .85; max-width: 340px; font-size: clamp(13px, 3.4vw, 15px); line-height: 1.5; margin-bottom: 6px; }
-    #ar-cta button {
-      margin-top: 6px;
-      padding: 16px 34px;
-      font-size: 18px;
-      font-weight: 700;
-      border-radius: 20px;
-      background: linear-gradient(135deg, #00c6ff, #0072ff);
-      color: #fff;
-      border: none;
-      cursor: pointer;
-      box-shadow: 0 10px 34px rgba(0,120,255,.55);
-    }
-    #ar-cta small { opacity: .55; margin-top: 12px; font-size: 12px; }
+    /* DOM overlay container used by WebXR while the AR session is active.
+       Empty by default — UI panels stay in normal document flow.
+       The overlay is invisible/pass-through when not in XR. */
+    #ml-dom-overlay { position: absolute; inset: 0; pointer-events: none; }
 
     /* Last 12 hours history strip */
     #history-strip {
@@ -525,38 +460,28 @@
 <div id="markerless-wrap">
   <video id="ml-camera" playsinline webkit-playsinline autoplay muted></video>
   <div id="ml-scene-host"></div>
+  <!-- DOM overlay for WebXR (city tabs / UI stay visible inside AR session) -->
+  <div id="ml-dom-overlay"></div>
 </div>
 
-<!-- UI-only overlay: transparent so WebXR camera can show through -->
-<div id="xr-overlay">
-  <div id="ui-overlay">
-    <span id="app-title">🌐 City AR</span>
-    <span id="live-weather">—</span>
-    <button id="ar-btn" onclick="enterMarkerlessARClick()" title="Enter AR" style="display:none">🚀 Start AR</button>
-    <button id="mute-btn" onclick="toggleMute()" title="Sound">🔊</button>
-    <button id="home-btn" onclick="goHome()">Home</button>
-  </div>
-
-  <div id="city-tabs">
-    <button class="city-tab active" onclick="selectCity(0)">🌴 Colombo</button>
-    <button class="city-tab" onclick="selectCity(1)">🎡 London</button>
-    <button class="city-tab" onclick="selectCity(2)">🗽 New York</button>
-    <button class="city-tab" onclick="selectCity(3)">🌉 San Francisco</button>
-  </div>
-
-  <p id="mode-hint"></p>
-  <div id="history-strip"></div>
-  <div id="toast"></div>
+<div id="ui-overlay">
+  <span id="app-title">🌐 City AR</span>
+  <span id="live-weather">—</span>
+  <button id="ar-btn" onclick="enterMarkerlessARClick()" title="Enter AR" style="display:none">🚀 Start AR</button>
+  <button id="mute-btn" onclick="toggleMute()" title="Sound">🔊</button>
+  <button id="home-btn" onclick="goHome()">Home</button>
 </div>
 
-<!-- Centered "Enter AR" call-to-action for Markerless (only when WebXR is supported) -->
-<div id="ar-cta">
-  <div class="ar-cta-emoji">📱✨</div>
-  <h2>Surface AR ready</h2>
-  <p>Point at a floor or table. When the blue ring appears, tap the screen to place the selected city.</p>
-  <button onclick="enterMarkerlessARClick()">🚀 Start AR</button>
-  <small>You can pick a city and change weather from the tabs after placing.</small>
+<div id="city-tabs">
+  <button class="city-tab active" onclick="selectCity(0)">🌴 Colombo</button>
+  <button class="city-tab" onclick="selectCity(1)">🎡 London</button>
+  <button class="city-tab" onclick="selectCity(2)">🗽 New York</button>
+  <button class="city-tab" onclick="selectCity(3)">🌉 San Francisco</button>
 </div>
+
+<p id="mode-hint"></p>
+<div id="history-strip"></div>
+<div id="toast"></div>
 <div id="screen-flash"></div>
 <div id="fog-overlay"></div>
 <div id="sun-tint"></div>
@@ -806,17 +731,10 @@
           if (anchor) anchor.setAttribute('visible', false);
           if (reticle) reticle.setAttribute('visible', false);
           document.body.classList.remove('ar-live-xr');
-          document.documentElement.classList.remove('ar-session');
         });
         session.addEventListener('select', function () { self.onSelect(); });
-        // Fallback: some devices don't fire XR "select"; also listen to plain taps
-        // BUT ignore taps that hit UI widgets (tabs, history, buttons).
-        self._onTouch = function (ev) {
-          if (ev && ev.target && ev.target.closest &&
-              ev.target.closest('button, .city-tab, .hist-cell, #history-strip, #city-tabs, #ar-cta, #ui-overlay, #toast')) return;
-          self.onSelect();
-        };
-        window.addEventListener('touchend', self._onTouch);
+        // Fallback: some devices don't fire XR "select"; also listen to plain taps.
+        window.addEventListener('touchend', self._onTouch = function () { self.onSelect(); });
         document.body.classList.add('ar-live-xr');
         try { showToast('👆 Point at floor/table, then tap to place', 3500); } catch (e) {}
       };
@@ -844,35 +762,6 @@
       const session = xr.getSession && xr.getSession();
       const frame = sceneEl.frame;
       if (!frame || !session) return;
-
-      // Attach listeners once even when session set programmatically (no enter-vr)
-      if (!this._attached) {
-        this._attached = true;
-        const self = this;
-        session.addEventListener('end', function () {
-          self.hitTestSource = null;
-          self.requested = false;
-          self.hit = null;
-          self.placed = false;
-          self._attached = false;
-          const anchor = document.getElementById('ml-anchor');
-          const reticle = document.getElementById('ml-reticle');
-          if (anchor) anchor.setAttribute('visible', false);
-          if (reticle) reticle.setAttribute('visible', false);
-          document.body.classList.remove('ar-live-xr');
-          document.documentElement.classList.remove('ar-session');
-          if (self._onTouch) window.removeEventListener('touchend', self._onTouch);
-        });
-        session.addEventListener('select', function () { self.onSelect(); });
-        self._onTouch = function (ev) {
-          if (ev && ev.target && ev.target.closest &&
-              ev.target.closest('button, .city-tab, .hist-cell, #history-strip, #city-tabs, #ar-cta, #ui-overlay, #toast')) return;
-          self.onSelect();
-        };
-        window.addEventListener('touchend', self._onTouch);
-        document.body.classList.add('ar-live-xr');
-        try { showToast('👆 Point at floor/table, then tap to place', 3500); } catch (e) {}
-      }
 
       if (!this.requested) {
         this.requested = true;
@@ -1324,7 +1213,6 @@
 
     return {
       play: play, stop: stop, setMuted: setMuted,
-      prime: function () { try { ensure(); } catch (e) {} },
       isMuted: function(){ return muted; }
     };
   })();
@@ -1649,7 +1537,7 @@
       // AR area sizes are much smaller (city on a table diorama)
       return `
         <a-scene id="markerless-scene"
-          webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay; overlayElement: #xr-overlay;"
+          webxr="requiredFeatures: hit-test; optionalFeatures: local-floor;"
           ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
           renderer="colorManagement: true; alpha: true; antialias: true"
@@ -1757,55 +1645,20 @@
 
   async function enterMarkerlessAR () {
     const scene = document.getElementById('markerless-scene');
-    if (!scene) { showToast('⚠️ AR scene missing', 3500); return; }
-    if (!markerlessUsesXR) return;
-
-    // Hide the CTA + video and prime audio in this user gesture
-    const cta = document.getElementById('ar-cta');
-    if (cta) cta.classList.remove('visible');
-    if (mlCamera) mlCamera.style.display = 'none';
-    try { WeatherAudio.prime(); } catch (e) {}
-
-    // Wait until A-Frame's renderer is ready
-    if (!scene.hasLoaded) {
-      await new Promise(function (r) { scene.addEventListener('loaded', r, { once: true }); });
-    }
-
-    // Force alpha compositing so camera pass-through shows
+    if (!scene) return;
+    if (!markerlessUsesXR) return; // fallback mode does not need enter
     try {
-      const renderer = scene.renderer;
-      if (renderer) {
-        renderer.setClearColor(0x000000, 0);
-        renderer.setClearAlpha(0);
-      }
-    } catch (e) {}
-
-    try {
-      document.documentElement.classList.add('ar-session');
-      document.body.classList.add('ar-live-xr');
-      const overlay = document.getElementById('xr-overlay');
-      let session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['local-floor', 'dom-overlay'],
-        domOverlay: { root: overlay || document.body }
-      });
-      if (scene.renderer && scene.renderer.xr) {
+      // A-Frame provides enterAR() when webxr feature is set
+      if (typeof scene.enterAR === 'function') await scene.enterAR();
+      else if (scene.renderer && scene.renderer.xr) {
+        const session = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['local-floor']
+        });
         await scene.renderer.xr.setSession(session);
       }
-      showToast('📷 Point at a floor or table, then tap to place', 2500);
-
-      session.addEventListener('end', function () {
-        document.documentElement.classList.remove('ar-session');
-        document.body.classList.remove('ar-live-xr');
-        if (mlCamera) mlCamera.style.display = '';
-      });
     } catch (err) {
-      document.documentElement.classList.remove('ar-session');
-      document.body.classList.remove('ar-live-xr');
-      if (mlCamera) mlCamera.style.display = '';
-      if (cta) cta.classList.add('visible');
-      const msg = (err && err.message) ? err.message : String(err);
-      showToast('⚠️ AR failed: ' + msg, 5000);
+      showToast('⚠️ Could not start AR: ' + (err && err.message ? err.message : ''), 4000);
     }
   }
 
@@ -1859,8 +1712,6 @@
   }
 
   window.startMode = async function (mode) {
-    // Prime WebAudio inside the tap gesture so sound works after any async work
-    try { WeatherAudio.prime(); } catch (e) {}
     startScreen.classList.add('hidden');
     uiOverlay.classList.add('visible');
     modeHint.classList.add('visible');
@@ -1876,8 +1727,6 @@
       markerlessWrap.style.display = 'none';
       const arBtn = document.getElementById('ar-btn');
       if (arBtn) arBtn.style.display = 'none';
-      const cta = document.getElementById('ar-cta');
-      if (cta) cta.classList.remove('visible');
       stopMarkerlessCamera();
       destroyMarkerlessScene();
       startMindAR();
@@ -1889,29 +1738,22 @@
       stopMindAR();
       markerlessWrap.style.display = 'block';
       try {
+        await ensureMarkerlessScene();
         const arBtn = document.getElementById('ar-btn');
-        const cta = document.getElementById('ar-cta');
-        // Detect WebXR support WITHOUT loading the AR scene yet
-        markerlessUsesXR = await isWebXRSupported();
-
         if (markerlessUsesXR) {
-          // Show a nice CTA over a branded background instead of a black canvas.
-          // Scene creation + camera happens inside enterMarkerlessARClick(), so
-          // the phone doesn't show any black screen while user reads instructions.
-          if (arBtn) arBtn.style.display = 'none';
-          if (cta) cta.classList.add('visible');
-          modeHint.textContent = '';
-          // Skip building the AR scene now — build on tap of Start AR
+          // Real surface AR — WebXR provides the camera itself
+          stopMarkerlessCamera();
+          modeHint.textContent = '👉 Tap "Start AR" · then tap on floor/table to place';
+          if (arBtn) arBtn.style.display = '';
+          showToast('📱 Surface AR ready — tap 🚀 Start AR', 2800);
         } else {
           // Fallback: fixed-position markerless with getUserMedia camera
           await startMarkerlessCamera();
-          await ensureMarkerlessScene();
           modeHint.textContent = '📱 Tap a city · 👆 drag to rotate · 🤏 pinch to zoom';
           if (arBtn) arBtn.style.display = 'none';
-          if (cta) cta.classList.remove('visible');
           showToast('Markerless AR (fixed) — device has no WebXR', 2500);
-          selectCity(mlCityIdx);
         }
+        selectCity(mlCityIdx);
       } catch (err) {
         toast.style.background = 'rgba(220,50,50,.9)';
         showToast('⚠️ ' + (err && err.message ? err.message : 'Could not start Markerless AR'));
@@ -1919,25 +1761,7 @@
     }
   };
 
-  window.enterMarkerlessARClick = async function () {
-    // Prime audio again inside this fresh user gesture
-    try { WeatherAudio.prime(); } catch (e) {}
-    const cta = document.getElementById('ar-cta');
-    if (cta) cta.classList.remove('visible');
-    // Now build the WebXR scene and enter AR
-    markerlessWrap.style.display = 'block';
-    try {
-      await ensureMarkerlessScene();
-      await selectCity(mlCityIdx);       // load default city + weather + history
-      await enterMarkerlessAR();
-      modeHint.textContent = '👆 Tap the floor/table (blue ring) · pick city from tabs';
-    } catch (err) {
-      toast.style.background = 'rgba(220,50,50,.9)';
-      showToast('⚠️ ' + (err && err.message ? err.message : 'Could not enter AR'), 4000);
-      // Show CTA again so user can retry
-      if (cta) cta.classList.add('visible');
-    }
-  };
+  window.enterMarkerlessARClick = function () { enterMarkerlessAR(); };
 
   window.goHome = function () {
     stopMindAR();
@@ -1952,11 +1776,7 @@
     markerlessWrap.style.display = 'none';
     const arBtn = document.getElementById('ar-btn');
     if (arBtn) arBtn.style.display = 'none';
-    const cta = document.getElementById('ar-cta');
-    if (cta) cta.classList.remove('visible');
     document.body.classList.remove('ar-live');
-    document.body.classList.remove('ar-live-xr');
-    document.documentElement.classList.remove('ar-session');
     uiOverlay.classList.remove('visible');
     cityTabs.classList.remove('visible');
     modeHint.classList.remove('visible');
