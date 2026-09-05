@@ -246,7 +246,7 @@
       font-family: inherit;
       transition: transform .15s ease, background .15s ease;
     }
-    .mode-btn:last-child { margin-bottom: 0; }
+    .mode-btn:last-of-type { margin-bottom: 0; }
     .mode-btn:hover { background: rgba(255,255,255,.14); }
     .mode-btn:active { transform: scale(.98); }
     .mode-btn strong {
@@ -267,6 +267,45 @@
       border-color: transparent;
     }
     .mode-btn.primary:hover { background: linear-gradient(135deg, #22d0ff, #1a82ff); }
+
+    .start-credits {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255,255,255,.12);
+      text-align: left;
+    }
+    .start-credits h2 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,.55);
+      margin-bottom: 8px;
+    }
+    .start-credits ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .start-credits a {
+      color: #9ee7ff;
+      text-decoration: none;
+      font-size: 12px;
+      line-height: 1.35;
+      display: block;
+    }
+    .start-credits a:hover { text-decoration: underline; }
+    .start-credits .by {
+      color: rgba(255,255,255,.55);
+      font-weight: 400;
+    }
+    .start-credits .license {
+      margin-top: 8px;
+      font-size: 10px;
+      color: rgba(255,255,255,.45);
+      line-height: 1.4;
+    }
 
     /* ── Top UI ── */
     #ui-overlay {
@@ -577,6 +616,28 @@
       <strong>Place it in your room</strong>
       <span>No photo needed — set a city on a table or the floor.</span>
     </button>
+
+    <div class="start-credits">
+      <h2>3D model credits</h2>
+      <ul>
+        <li>
+          <a href="https://sketchfab.com/3d-models/london-city-e57d7a04837d44fdb60f78b3f5a0066d" target="_blank" rel="noopener noreferrer">
+            London City <span class="by">by golukumar</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://sketchfab.com/3d-models/new-york-city-manhattan-372bc495b3a941308f4a3198bc45e17b" target="_blank" rel="noopener noreferrer">
+            New York City · Manhattan <span class="by">by truekit</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://sketchfab.com/3d-models/san-francisco-city-a7a5b99638f143af84bc646ae2d270c1" target="_blank" rel="noopener noreferrer">
+            San Francisco City <span class="by">by aaelick</span>
+          </a>
+        </li>
+      </ul>
+      <p class="license">Models from Sketchfab under Creative Commons Attribution (CC BY). Tap a name to open the original page.</p>
+    </div>
   </div>
 </div>
 
