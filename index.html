@@ -1700,7 +1700,7 @@
     scene.addEventListener('enter-vr', function () {
       const arBtn = document.getElementById('ar-btn');
       if (arBtn) arBtn.classList.remove('visible');
-      // Re-enable hit-test each session (helps after exit/re-enter)
+      // Fresh session: allow one place again
       try { scene.setAttribute('ar-hit-test', 'enabled', true); } catch (e) {}
       startScanHints();
     });
@@ -1718,12 +1718,15 @@
     scene.addEventListener('ar-hit-test-select', function () {
       mlSurfaceFound = true;
       clearMlScanHintTimer();
-      setBanner('Placed. Walk around · tap again to move');
-      showToast('City anchored to the surface', 2200);
+      // Lock position: stop hit-test so later taps do not move the city
+      try { scene.setAttribute('ar-hit-test', 'enabled', false); } catch (e) {}
+      setBanner('Placed. Drag to rotate · pinch to zoom · it stays here');
+      showToast('City locked in place', 2200);
     });
     scene.addEventListener('exit-vr', function () {
       clearMlScanHintTimer();
       mlSurfaceFound = false;
+      try { scene.setAttribute('ar-hit-test', 'enabled', true); } catch (e) {}
       if (xrScanBanner) xrScanBanner.classList.remove('visible');
       if (currentMode === 'markerless') {
         const arBtn = document.getElementById('ar-btn');
