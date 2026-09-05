@@ -1589,6 +1589,8 @@
   }
 
   function destroyMarkerlessScene () {
+    clearMlScanHintTimer();
+    mlSurfaceFound = false;
     if (mlSceneHost) mlSceneHost.innerHTML = '';
     if (xrScanBanner) {
       xrScanBanner.classList.remove('visible');
@@ -1608,8 +1610,8 @@
   function markerlessSceneHTML () {
     return `
       <a-scene id="markerless-scene"
-        webxr="optionalFeatures: hit-test,local-floor,dom-overlay,light-estimation; overlayElement: #xr-overlay;"
-        ar-hit-test="target: #ml-anchor; type: footprint; footprintDepth: 0.2;"
+        webxr="requiredFeatures: hit-test; optionalFeatures: local-floor,dom-overlay,light-estimation; overlayElement: #xr-overlay;"
+        ar-hit-test="target: #ml-anchor; type: map; mapSize: 0.35 0.35; enabled: true"
         vr-mode-ui="enabled: false"
         device-orientation-permission-ui="enabled: false"
         renderer="colorManagement: true; alpha: true; antialias: true">
@@ -1659,31 +1661,69 @@
   }
 
   let markerlessUsesXR = false;
+  let mlScanHintTimer = null;
+  let mlSurfaceFound = false;
+
+  function clearMlScanHintTimer () {
+    if (mlScanHintTimer) {
+      clearTimeout(mlScanHintTimer);
+      mlScanHintTimer = null;
+    }
+  }
 
   function bindWebXRHitTestUI (scene) {
+    if (scene.dataset.hitUiBound === '1') return;
+    scene.dataset.hitUiBound = '1';
+
     const setBanner = (text) => {
       if (!xrScanBanner) return;
       xrScanBanner.textContent = text;
       xrScanBanner.classList.add('visible');
     };
+
+    const startScanHints = () => {
+      clearMlScanHintTimer();
+      mlSurfaceFound = false;
+      setBanner('Point at a table or floor · move slowly side to side');
+      showToast('Scan a textured surface in good light', 2800);
+      mlScanHintTimer = setTimeout(() => {
+        if (mlSurfaceFound || currentMode !== 'markerless') return;
+        setBanner('Still scanning… try brighter light, wood/tile floor, move phone slowly');
+        showToast('Tip: blank white tables are hard to scan', 4000);
+        mlScanHintTimer = setTimeout(() => {
+          if (mlSurfaceFound || currentMode !== 'markerless') return;
+          setBanner('No surface yet · go Home and use “Start with a picture”, or try another room');
+        }, 12000);
+      }, 8000);
+    };
+
     scene.addEventListener('enter-vr', function () {
       const arBtn = document.getElementById('ar-btn');
       if (arBtn) arBtn.classList.remove('visible');
-      setBanner('Move your phone slowly over a table or floor…');
-      showToast('WebXR hit-test started — find a surface', 2800);
+      // Re-enable hit-test each session (helps after exit/re-enter)
+      try { scene.setAttribute('ar-hit-test', 'enabled', true); } catch (e) {}
+      startScanHints();
     });
     scene.addEventListener('ar-hit-test-start', function () {
-      setBanner('Scanning environment… pan over a table or floor');
+      if (!mlSurfaceFound) {
+        setBanner('Scanning… keep the phone steady, then sweep slowly');
+      }
     });
     scene.addEventListener('ar-hit-test-achieved', function () {
-      setBanner('Surface found — tap the screen to place the city');
+      mlSurfaceFound = true;
+      clearMlScanHintTimer();
+      setBanner('Blue marker found — tap the screen to place the city');
       showToast('Surface found — tap to place', 2500);
     });
     scene.addEventListener('ar-hit-test-select', function () {
-      setBanner('Placed on the real surface. Walk around · tap again to move');
+      mlSurfaceFound = true;
+      clearMlScanHintTimer();
+      setBanner('Placed. Walk around · tap again to move');
       showToast('City anchored to the surface', 2200);
     });
     scene.addEventListener('exit-vr', function () {
+      clearMlScanHintTimer();
+      mlSurfaceFound = false;
       if (xrScanBanner) xrScanBanner.classList.remove('visible');
       if (currentMode === 'markerless') {
         const arBtn = document.getElementById('ar-btn');
@@ -1715,18 +1755,20 @@
     const scene = document.getElementById('markerless-scene');
     if (!scene) return;
     try {
+      // Prefer A-Frame enterAR so requiredFeatures (hit-test) from webxr= are applied
       if (typeof scene.enterAR === 'function') {
         await scene.enterAR();
-      } else {
-        const session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['local-floor', 'dom-overlay', 'light-estimation'],
-          domOverlay: { root: document.getElementById('xr-overlay') }
-        });
-        await scene.renderer.xr.setSession(session);
+        return;
       }
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay', 'light-estimation'],
+        domOverlay: { root: document.getElementById('xr-overlay') }
+      });
+      await scene.renderer.xr.setSession(session);
     } catch (err) {
-      showToast('⚠️ Could not start WebXR: ' + (err && err.message ? err.message : err), 5000);
+      const msg = (err && err.message) ? err.message : String(err);
+      showToast('⚠️ WebXR failed: ' + msg + ' — use Chrome Android + ARCore, or try Marker mode', 6000);
     }
   }
 
@@ -1793,9 +1835,9 @@
         await ensureMarkerlessScene();
         const arBtn = document.getElementById('ar-btn');
         if (arBtn) arBtn.classList.add('visible');
-        modeHint.textContent = 'Tap Start AR · pan over a table/floor · tap to place';
+        modeHint.textContent = 'Tap Start AR · bright room · textured table/floor · move slowly · tap when marker appears';
         selectCity(mlCityIdx);
-        showToast('Tap 🚀 Start AR, then scan a real surface', 3000);
+        showToast('Tap Start AR · scan wood/tile in good light', 3200);
       } catch (err) {
         toast.style.background = 'rgba(220,50,50,.9)';
         showToast('⚠️ ' + (err && err.message ? err.message : 'Could not start Markerless AR'), 5000);
@@ -1806,6 +1848,8 @@
   window.enterMarkerlessARClick = function () { enterMarkerlessAR(); };
 
   window.goHome = function () {
+    clearMlScanHintTimer();
+    mlSurfaceFound = false;
     stopMindAR();
     stopMarkerlessCamera();
     // End WebXR session if active
