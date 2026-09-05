@@ -1473,7 +1473,7 @@
   function markerlessSceneHTML () {
     return `
       <a-scene id="markerless-scene"
-        webxr="optionalFeatures: hit-test,local-floor,dom-overlay,light-estimation; overlayElement: #xr-overlay;"
+        webxr="optionalFeatures: hit-test,local-floor;"
         ar-hit-test="target: #ml-anchor; type: footprint; footprintDepth: 0.2;"
         vr-mode-ui="enabled: false"
         device-orientation-permission-ui="enabled: false"
@@ -1633,7 +1633,6 @@
     if (xrLock) return;
     const btn = document.getElementById('ar-btn');
     const scene = document.getElementById('markerless-scene');
-    const overlay = document.getElementById('xr-overlay');
 
     if (!scene || !scene.hasLoaded) {
       showToast('Scene still loading — wait 1 second, then tap Start AR again', 4000);
@@ -1652,23 +1651,15 @@
 
     try { if (markerScene && markerScene.pause) markerScene.pause(); } catch (e) {}
 
+    // Same phone can do immersive-ar, but requiredFeatures: hit-test is often
+    // rejected. Request AR with OPTIONAL hit-test (this is how it worked before).
     navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['hit-test'],
-      optionalFeatures: ['local-floor', 'dom-overlay'],
-      domOverlay: { root: overlay }
+      optionalFeatures: ['hit-test', 'local-floor']
     }).then(function (session) {
       return attachXrSession(scene, session);
-    }).catch(function (err1) {
-      return navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['local-floor']
-      }).then(function (session) {
-        return attachXrSession(scene, session);
-      }).catch(function (err2) {
-        resetArButton('⚠️ Tap to retry');
-        const msg = (err2 && err2.message) || (err1 && err1.message) || String(err2 || err1);
-        showToast('⚠️ WebXR failed: ' + msg + ' — use Chrome + install Google Play Services for AR.', 8000);
-      });
+    }).catch(function (err) {
+      resetArButton('⚠️ Tap to retry');
+      showToast('⚠️ WebXR failed: ' + ((err && err.message) || err), 8000);
     });
   }
 
