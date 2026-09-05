@@ -339,7 +339,6 @@
       text-align: center;
     }
     #ar-btn.visible { display: block; }
-    #ar-btn:disabled { opacity: .85; }
 
     /* DOM overlay container used by WebXR while the AR session is active.
        Empty by default — UI panels stay in normal document flow.
@@ -1290,7 +1289,7 @@
 
   // Stop touch events on UI widgets from reaching the touch-rotate window listener
   function guardUITouches () {
-    const sels = ['#history-strip', '#city-tabs', '#ui-overlay', '#toast', '#mute-btn', '#home-btn', '#ar-btn'];
+    const sels = ['#history-strip', '#city-tabs', '#ui-overlay', '#toast', '#mute-btn', '#home-btn'];
     sels.forEach(function (sel) {
       const el = document.querySelector(sel);
       if (!el) return;
@@ -1473,7 +1472,7 @@
   function markerlessSceneHTML () {
     return `
       <a-scene id="markerless-scene"
-        webxr="optionalFeatures: hit-test,local-floor;"
+        webxr="optionalFeatures: hit-test,local-floor,dom-overlay,light-estimation; overlayElement: #xr-overlay;"
         ar-hit-test="target: #ml-anchor; type: footprint; footprintDepth: 0.2;"
         vr-mode-ui="enabled: false"
         device-orientation-permission-ui="enabled: false"
@@ -1576,91 +1575,23 @@
     });
   }
 
-  let xrLock = false;
-
-  function resetArButton (label) {
-    xrLock = false;
-    const btn = document.getElementById('ar-btn');
-    if (!btn) return;
-    btn.disabled = false;
-    btn.textContent = label || '🚀 Start AR';
-    btn.classList.add('visible');
-  }
-
-  function hideArButton () {
-    xrLock = false;
-    const btn = document.getElementById('ar-btn');
-    if (!btn) return;
-    btn.disabled = false;
-    btn.textContent = '🚀 Start AR';
-    btn.classList.remove('visible');
-  }
-
-  function attachXrSession (scene, session) {
-    const renderer = scene.renderer;
-    if (!renderer || !renderer.xr) {
-      session.end();
-      throw new Error('A-Frame renderer not ready — tap Start AR again');
-    }
-    renderer.xr.enabled = true;
-    try { renderer.xr.setReferenceSpaceType('local'); } catch (e) {}
-
-    const finish = function () {
-      try {
-        scene.addState('vr-mode');
-        scene.addState('ar-mode');
-      } catch (e) {}
-      scene.emit('enter-vr');
-      hideArButton();
-    };
-
-    session.addEventListener('end', function () {
-      try {
-        scene.removeState('vr-mode');
-        scene.removeState('ar-mode');
-      } catch (e) {}
-      scene.emit('exit-vr');
-    });
-
-    const p = renderer.xr.setSession(session);
-    if (p && typeof p.then === 'function') return p.then(finish);
-    finish();
-  }
-
-  // requestSession must run in the same tap. A-Frame enterAR() often waits a
-  // tick first, so Chrome drops the user-gesture and AR never starts.
-  function enterMarkerlessAR () {
-    if (xrLock) return;
-    const btn = document.getElementById('ar-btn');
+  async function enterMarkerlessAR () {
     const scene = document.getElementById('markerless-scene');
-
-    if (!scene || !scene.hasLoaded) {
-      showToast('Scene still loading — wait 1 second, then tap Start AR again', 4000);
-      return;
+    if (!scene) return;
+    try {
+      if (typeof scene.enterAR === 'function') {
+        await scene.enterAR();
+      } else {
+        const session = await navigator.xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['local-floor', 'dom-overlay', 'light-estimation'],
+          domOverlay: { root: document.getElementById('xr-overlay') }
+        });
+        await scene.renderer.xr.setSession(session);
+      }
+    } catch (err) {
+      showToast('⚠️ Could not start WebXR: ' + (err && err.message ? err.message : err), 5000);
     }
-    if (!navigator.xr || !navigator.xr.requestSession) {
-      showToast('⚠️ WebXR missing. Open this page in Chrome on Android.', 6000);
-      return;
-    }
-
-    xrLock = true;
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Starting AR…';
-    }
-
-    try { if (markerScene && markerScene.pause) markerScene.pause(); } catch (e) {}
-
-    // Same phone can do immersive-ar, but requiredFeatures: hit-test is often
-    // rejected. Request AR with OPTIONAL hit-test (this is how it worked before).
-    navigator.xr.requestSession('immersive-ar', {
-      optionalFeatures: ['hit-test', 'local-floor']
-    }).then(function (session) {
-      return attachXrSession(scene, session);
-    }).catch(function (err) {
-      resetArButton('⚠️ Tap to retry');
-      showToast('⚠️ WebXR failed: ' + ((err && err.message) || err), 8000);
-    });
   }
 
   function stopMarkerlessCamera () {
@@ -1736,19 +1667,7 @@
     }
   };
 
-  window.enterMarkerlessARClick = function (e) {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    enterMarkerlessAR();
-  };
-  (function bindArBtnTouch () {
-    const btn = document.getElementById('ar-btn');
-    if (!btn) return;
-    btn.addEventListener('touchend', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      enterMarkerlessAR();
-    }, { passive: false });
-  })();
+  window.enterMarkerlessARClick = function () { enterMarkerlessAR(); };
 
   window.goHome = function () {
     stopMindAR();
